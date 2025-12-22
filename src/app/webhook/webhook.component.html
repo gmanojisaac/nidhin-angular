@@ -87,19 +87,29 @@
                   <td mat-cell *matCellDef="let row">{{ row.timeIst }}</td>
                 </ng-container>
 
-                <ng-container matColumnDef="ltp">
-                  <th mat-header-cell *matHeaderCellDef>LTP</th>
-                  <td mat-cell *matCellDef="let row">{{ row.ltp ?? '--' }}</td>
+                <ng-container matColumnDef="symbol">
+                  <th mat-header-cell *matHeaderCellDef>Symbol</th>
+                  <td mat-cell *matCellDef="let row">{{ row.symbol }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="entryPrice">
+                  <th mat-header-cell *matHeaderCellDef>Entry</th>
+                  <td mat-cell *matCellDef="let row">{{ formatPrice(row.entryPrice) }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="currentPrice">
+                  <th mat-header-cell *matHeaderCellDef>Current</th>
+                  <td mat-cell *matCellDef="let row">{{ formatPrice(row.currentPrice) }}</td>
                 </ng-container>
 
                 <ng-container matColumnDef="unrealizedPnl">
                   <th mat-header-cell *matHeaderCellDef>Unrealized PnL</th>
-                  <td mat-cell *matCellDef="let row">{{ row.unrealizedPnl ?? '--' }}</td>
+                  <td mat-cell *matCellDef="let row">{{ formatPrice(row.unrealizedPnl) }}</td>
                 </ng-container>
 
                 <ng-container matColumnDef="cumulativePnl">
                   <th mat-header-cell *matHeaderCellDef>Cumulative PnL</th>
-                  <td mat-cell *matCellDef="let row">{{ row.cumulativePnl ?? '--' }}</td>
+                  <td mat-cell *matCellDef="let row">{{ formatPrice(row.cumulativePnl) }}</td>
                 </ng-container>
 
                 <ng-container matColumnDef="quantity">
@@ -132,19 +142,29 @@
                   <td mat-cell *matCellDef="let row">{{ row.timeIst }}</td>
                 </ng-container>
 
-                <ng-container matColumnDef="ltp">
-                  <th mat-header-cell *matHeaderCellDef>LTP</th>
-                  <td mat-cell *matCellDef="let row">{{ row.ltp ?? '--' }}</td>
+                <ng-container matColumnDef="symbol">
+                  <th mat-header-cell *matHeaderCellDef>Symbol</th>
+                  <td mat-cell *matCellDef="let row">{{ row.symbol }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="entryPrice">
+                  <th mat-header-cell *matHeaderCellDef>Entry</th>
+                  <td mat-cell *matCellDef="let row">{{ formatPrice(row.entryPrice) }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="currentPrice">
+                  <th mat-header-cell *matHeaderCellDef>Current</th>
+                  <td mat-cell *matCellDef="let row">{{ formatPrice(row.currentPrice) }}</td>
                 </ng-container>
 
                 <ng-container matColumnDef="unrealizedPnl">
                   <th mat-header-cell *matHeaderCellDef>Unrealized PnL</th>
-                  <td mat-cell *matCellDef="let row">{{ row.unrealizedPnl ?? '--' }}</td>
+                  <td mat-cell *matCellDef="let row">{{ formatPrice(row.unrealizedPnl) }}</td>
                 </ng-container>
 
                 <ng-container matColumnDef="cumulativePnl">
                   <th mat-header-cell *matHeaderCellDef>Cumulative PnL</th>
-                  <td mat-cell *matCellDef="let row">{{ row.cumulativePnl ?? '--' }}</td>
+                  <td mat-cell *matCellDef="let row">{{ formatPrice(row.cumulativePnl) }}</td>
                 </ng-container>
 
                 <ng-container matColumnDef="quantity">

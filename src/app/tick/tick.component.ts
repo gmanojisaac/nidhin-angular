@@ -7,6 +7,7 @@ import { MatTableModule } from '@angular/material/table';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { combineLatest, defer, from, map, merge, scan, shareReplay, startWith, withLatestFrom } from 'rxjs';
 import { BinancePayload, BinanceService } from '../binance/binance.service';
+import { FsmSymbolSnapshot, TickFsmStateService } from './tick-fsm-state.service';
 import { WebhookPayload, WebhookService } from '../webhook/webhook.service';
 import { Tick, TickService } from './tick.service';
 
@@ -20,6 +21,7 @@ type InstrumentLookup = {
   map: Map<number, string>;
   order: Map<number, number>;
   symbolLookup: Map<string, number>;
+  tokenSymbols: Map<number, string[]>;
 };
 
 type FsmState = 'NOSIGNAL' | 'NOPOSITION_SIGNAL' | 'BUYPOSITION' | 'NOPOSITION_BLOCKED';
@@ -28,6 +30,8 @@ type InstrumentFsm = {
   state: FsmState;
   threshold: number | null;
   savedBUYThreshold: number | null;
+  lastBUYThreshold: number | null;
+  lastSELLThreshold: number | null;
   lastSignalAtMs: number | null;
   lastCheckedAtMs: number | null;
   lastBlockedAtMs: number | null;
@@ -72,6 +76,7 @@ export class TickComponent {
   private readonly tickService = inject(TickService);
   private readonly binanceService = inject(BinanceService);
   private readonly webhookService = inject(WebhookService);
+  private readonly fsmStateService = inject(TickFsmStateService);
   private readonly instrumentLookup$ = this.loadInstrumentMap();
   readonly displayedColumns = [
     'index',
@@ -112,7 +117,16 @@ export class TickComponent {
         ? state.fsmBySymbol.get(binance.symbol) ?? this.defaultFsm()
         : this.defaultFsm();
       const binanceRow = this.toBinanceRow(binance, binanceFsm);
-      return binanceRow ? [...rows, binanceRow] : rows;
+      const snapshot = this.buildFsmSnapshot(state, instrumentLookup);
+      return {
+        rows: binanceRow ? [...rows, binanceRow] : rows,
+        snapshot
+      };
+    })
+  ).pipe(
+    map(({ rows, snapshot }) => {
+      this.fsmStateService.update(snapshot);
+      return rows;
     })
   );
 
@@ -311,6 +325,8 @@ export class TickComponent {
         state: 'NOPOSITION_SIGNAL',
         threshold,
         savedBUYThreshold: threshold,
+        lastBUYThreshold: threshold,
+        lastSELLThreshold: current.lastSELLThreshold,
         lastSignalAtMs: receivedAt,
         lastCheckedAtMs: null,
         lastBlockedAtMs: null
@@ -321,6 +337,8 @@ export class TickComponent {
       state: 'NOPOSITION_SIGNAL',
       threshold,
       savedBUYThreshold: current.savedBUYThreshold,
+      lastBUYThreshold: current.lastBUYThreshold,
+      lastSELLThreshold: threshold,
       lastSignalAtMs: receivedAt,
       lastCheckedAtMs: null,
       lastBlockedAtMs: null
@@ -462,6 +480,8 @@ export class TickComponent {
       state: 'NOSIGNAL',
       threshold: null,
       savedBUYThreshold: null,
+      lastBUYThreshold: null,
+      lastSELLThreshold: null,
       lastSignalAtMs: null,
       lastCheckedAtMs: null,
       lastBlockedAtMs: null
@@ -532,17 +552,53 @@ export class TickComponent {
     );
   }
 
+  private buildFsmSnapshot(state: TickState, lookup: InstrumentLookup): Map<string, FsmSymbolSnapshot> {
+    const snapshot = new Map<string, FsmSymbolSnapshot>();
+    for (const [token, fsm] of state.fsmByToken.entries()) {
+      const symbols = lookup.tokenSymbols.get(token) ?? [];
+      const ltp = state.latestLtpByToken.get(token) ?? null;
+      for (const symbol of symbols) {
+        snapshot.set(symbol, {
+          state: fsm.state,
+          ltp,
+          lastBUYThreshold: fsm.lastBUYThreshold,
+          lastSELLThreshold: fsm.lastSELLThreshold
+        });
+      }
+    }
+    for (const [symbol, fsm] of state.fsmBySymbol.entries()) {
+      const ltp = state.latestBinanceBySymbol.get(symbol) ?? null;
+      snapshot.set(symbol, {
+        state: fsm.state,
+        ltp,
+        lastBUYThreshold: fsm.lastBUYThreshold,
+        lastSELLThreshold: fsm.lastSELLThreshold
+      });
+    }
+    return snapshot;
+  }
+
   private async fetchInstrumentMap(): Promise<InstrumentLookup> {
     try {
       const response = await fetch('/instruments.json', { cache: 'no-store' });
       if (!response.ok) {
-        return { map: new Map<number, string>(), order: new Map<number, number>(), symbolLookup: new Map<string, number>() };
+        return {
+          map: new Map<number, string>(),
+          order: new Map<number, number>(),
+          symbolLookup: new Map<string, number>(),
+          tokenSymbols: new Map<number, string[]>()
+        };
       }
       const parsed = await response.json();
       const meta = Array.isArray(parsed) ? (parsed as InstrumentMeta[]) : [];
       return this.buildMapFromMeta(meta);
     } catch {
-      return { map: new Map<number, string>(), order: new Map<number, number>(), symbolLookup: new Map<string, number>() };
+      return {
+        map: new Map<number, string>(),
+        order: new Map<number, number>(),
+        symbolLookup: new Map<string, number>(),
+        tokenSymbols: new Map<number, string[]>()
+      };
     }
   }
 
@@ -550,16 +606,23 @@ export class TickComponent {
     const map = new Map<number, string>();
     const order = new Map<number, number>();
     const symbolLookup = new Map<string, number>();
+    const tokenSymbols = new Map<number, string[]>();
     meta.forEach((instrument, index) => {
       if (typeof instrument.token === 'number' && typeof instrument.zerodha === 'string') {
         map.set(instrument.token, instrument.zerodha);
         order.set(instrument.token, index);
         symbolLookup.set(instrument.zerodha, instrument.token);
+        const list = tokenSymbols.get(instrument.token) ?? [];
+        list.push(instrument.zerodha);
+        tokenSymbols.set(instrument.token, list);
       }
       if (typeof instrument.token === 'number' && typeof instrument.tradingview === 'string') {
         symbolLookup.set(instrument.tradingview, instrument.token);
+        const list = tokenSymbols.get(instrument.token) ?? [];
+        list.push(instrument.tradingview);
+        tokenSymbols.set(instrument.token, list);
       }
     });
-    return { map, order, symbolLookup };
+    return { map, order, symbolLookup, tokenSymbols };
   }
 }
