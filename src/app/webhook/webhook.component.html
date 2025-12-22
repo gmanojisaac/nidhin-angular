@@ -1,0 +1,166 @@
+<section class="webhook-page">
+  <mat-toolbar color="primary" class="webhook-toolbar">
+    <span>TradingView Webhooks</span>
+    <span class="spacer"></span>
+    <span class="toolbar-subhead">Listening on http://localhost:3001</span>
+    <button mat-stroked-button type="button" (click)="clearSignals()">Clear signals</button>
+  </mat-toolbar>
+
+  <div class="webhook-grid">
+    <mat-card class="card">
+      <mat-card-header class="card-header">
+        <mat-card-title>Signals by Symbol</mat-card-title>
+        <mat-chip-set>
+          <mat-chip color="accent" selected>Live</mat-chip>
+        </mat-chip-set>
+      </mat-card-header>
+      <mat-card-content>
+        @if (viewModel$ | async; as vm) {
+          <div class="controls">
+            <mat-form-field appearance="outline" class="symbol-select">
+              <mat-label>Instrument Symbol</mat-label>
+              <mat-select [(ngModel)]="selectedSymbol">
+                @for (symbol of vm.symbols; track symbol) {
+                  <mat-option [value]="symbol">{{ symbol }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+          </div>
+
+          @if (vm.rows.length > 0) {
+            <div class="table-wrap">
+              <table mat-table [dataSource]="vm.rows" class="mat-elevation-z0">
+                <ng-container matColumnDef="timeIst">
+                  <th mat-header-cell *matHeaderCellDef>Time (IST)</th>
+                  <td mat-cell *matCellDef="let row">{{ row.timeIst }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="intent">
+                  <th mat-header-cell *matHeaderCellDef>Intent</th>
+                  <td mat-cell *matCellDef="let row">{{ row.intent ?? '--' }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="stoppx">
+                  <th mat-header-cell *matHeaderCellDef>Stop Px</th>
+                  <td mat-cell *matCellDef="let row">{{ formatStopPx(row.stoppx) }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="alternateSignal">
+                  <th mat-header-cell *matHeaderCellDef>ALTERNATE_SIGNAL</th>
+                  <td mat-cell *matCellDef="let row">{{ row.alternateSignal ?? '--' }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="buySellSell">
+                  <th mat-header-cell *matHeaderCellDef>BUY_SELL_SELL</th>
+                  <td mat-cell *matCellDef="let row">{{ row.buySellSell ?? '--' }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="sellBuyBuy">
+                  <th mat-header-cell *matHeaderCellDef>SELL_BUY_BUY</th>
+                  <td mat-cell *matCellDef="let row">{{ row.sellBuyBuy ?? '--' }}</td>
+                </ng-container>
+
+                <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+                <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+              </table>
+            </div>
+          } @else {
+            <p class="empty">No signals received for this symbol yet.</p>
+          }
+        } @else {
+          <p class="empty">No webhook events received yet.</p>
+        }
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="card">
+      <mat-card-header class="card-header">
+        <mat-card-title>Paper Trades</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        @if (viewModel$ | async; as vm) {
+          @if (vm.paperRows.length > 0) {
+            <div class="table-wrap">
+              <table mat-table [dataSource]="vm.paperRows" class="mat-elevation-z0">
+                <ng-container matColumnDef="timeIst">
+                  <th mat-header-cell *matHeaderCellDef>Time (IST)</th>
+                  <td mat-cell *matCellDef="let row">{{ row.timeIst }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="ltp">
+                  <th mat-header-cell *matHeaderCellDef>LTP</th>
+                  <td mat-cell *matCellDef="let row">{{ row.ltp ?? '--' }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="unrealizedPnl">
+                  <th mat-header-cell *matHeaderCellDef>Unrealized PnL</th>
+                  <td mat-cell *matCellDef="let row">{{ row.unrealizedPnl ?? '--' }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="cumulativePnl">
+                  <th mat-header-cell *matHeaderCellDef>Cumulative PnL</th>
+                  <td mat-cell *matCellDef="let row">{{ row.cumulativePnl ?? '--' }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="quantity">
+                  <th mat-header-cell *matHeaderCellDef>Quantity</th>
+                  <td mat-cell *matCellDef="let row">{{ row.quantity ?? '--' }}</td>
+                </ng-container>
+
+                <tr mat-header-row *matHeaderRowDef="tradeColumns"></tr>
+                <tr mat-row *matRowDef="let row; columns: tradeColumns;"></tr>
+              </table>
+            </div>
+          } @else {
+            <p class="empty">No paper trades for this symbol yet.</p>
+          }
+        }
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card class="card">
+      <mat-card-header class="card-header">
+        <mat-card-title>Live Trades</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        @if (viewModel$ | async; as vm) {
+          @if (vm.liveRows.length > 0) {
+            <div class="table-wrap">
+              <table mat-table [dataSource]="vm.liveRows" class="mat-elevation-z0">
+                <ng-container matColumnDef="timeIst">
+                  <th mat-header-cell *matHeaderCellDef>Time (IST)</th>
+                  <td mat-cell *matCellDef="let row">{{ row.timeIst }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="ltp">
+                  <th mat-header-cell *matHeaderCellDef>LTP</th>
+                  <td mat-cell *matCellDef="let row">{{ row.ltp ?? '--' }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="unrealizedPnl">
+                  <th mat-header-cell *matHeaderCellDef>Unrealized PnL</th>
+                  <td mat-cell *matCellDef="let row">{{ row.unrealizedPnl ?? '--' }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="cumulativePnl">
+                  <th mat-header-cell *matHeaderCellDef>Cumulative PnL</th>
+                  <td mat-cell *matCellDef="let row">{{ row.cumulativePnl ?? '--' }}</td>
+                </ng-container>
+
+                <ng-container matColumnDef="quantity">
+                  <th mat-header-cell *matHeaderCellDef>Quantity</th>
+                  <td mat-cell *matCellDef="let row">{{ row.quantity ?? '--' }}</td>
+                </ng-container>
+
+                <tr mat-header-row *matHeaderRowDef="tradeColumns"></tr>
+                <tr mat-row *matRowDef="let row; columns: tradeColumns;"></tr>
+              </table>
+            </div>
+          } @else {
+            <p class="empty">No live trades for this symbol yet.</p>
+          }
+        }
+      </mat-card-content>
+    </mat-card>
+  </div>
+</section>

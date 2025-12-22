@@ -1,0 +1,164 @@
+:host {
+  display: block;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top, rgba(255, 248, 235, 0.9), transparent 55%),
+    linear-gradient(135deg, #f7f2e8 0%, #f0f5ff 100%);
+  color: #1f2a44;
+  font-family: "Manrope", "Segoe UI", sans-serif;
+}
+
+.tick-page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 4rem;
+}
+
+.tick-toolbar {
+  border-radius: 20px;
+  margin-bottom: 2rem;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.toolbar-subhead {
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.tick-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 2rem;
+  margin-bottom: 2.5rem;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.2rem;
+  font-size: 0.7rem;
+  color: #6b748a;
+  margin: 0 0 0.4rem;
+}
+
+h1 {
+  font-size: clamp(2rem, 3vw, 3rem);
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.subhead {
+  margin: 0;
+  color: #6b748a;
+}
+
+.tick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  padding: 1.5rem;
+  box-shadow: 0 16px 40px rgba(31, 42, 68, 0.08);
+  border: 1px solid rgba(31, 42, 68, 0.06);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.card-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.badge {
+  background: #1f2a44;
+  color: #fff;
+  font-size: 0.7rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  letter-spacing: 0.05rem;
+  text-transform: uppercase;
+}
+
+.tick-value {
+  background: #121826;
+  color: #f4f7ff;
+  padding: 1rem;
+  border-radius: 16px;
+  font-size: 0.95rem;
+  overflow-x: auto;
+}
+
+.tick-placeholder {
+  color: #8a94a6;
+  margin: 0;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+thead th {
+  text-align: left;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08rem;
+  color: #6b748a;
+  padding-bottom: 0.75rem;
+}
+
+tbody td {
+  padding: 0.75rem 0;
+  border-top: 1px solid rgba(31, 42, 68, 0.08);
+}
+
+.index {
+  width: 3rem;
+  color: #6b748a;
+}
+
+.tick-cell {
+  font-family: "JetBrains Mono", "Courier New", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 420px;
+}
+
+.empty {
+  padding: 1.25rem 0;
+  text-align: center;
+  color: #8a94a6;
+}
+
+@media (max-width: 600px) {
+  .tick-page {
+    padding: 2rem 1rem 3rem;
+  }
+
+  .tick-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .tick-cell {
+    max-width: 220px;
+  }
+}

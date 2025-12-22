@@ -1,0 +1,47 @@
+<section class="delta-page">
+  <mat-toolbar color="primary" class="delta-toolbar">
+    <span>Delta Exchange BTCUSD</span>
+    <span class="spacer"></span>
+    <span class="toolbar-subhead">Listening on http://localhost:3001</span>
+  </mat-toolbar>
+
+  <div class="delta-grid">
+    <mat-card class="card">
+      <mat-card-header>
+        <mat-card-title>Latest Delta Tick</mat-card-title>
+        <mat-chip-set>
+          <mat-chip color="accent" selected>Live</mat-chip>
+        </mat-chip-set>
+      </mat-card-header>
+      <mat-card-content>
+        @if (latestDelta$ | async; as delta) {
+          <div class="payload-grid">
+            <div>
+              <p class="label">Exchange</p>
+              <p class="value">{{ delta.exchange ?? '--' }}</p>
+            </div>
+            <div>
+              <p class="label">Symbol</p>
+              <p class="value">{{ delta.symbol ?? '--' }}</p>
+            </div>
+            <div>
+              <p class="label">Price</p>
+              <p class="value">{{ formatPrice(delta.price) }}</p>
+            </div>
+            <div>
+              <p class="label">Time</p>
+              <p class="value">{{ formatTimestamp(delta.timestamp) }}</p>
+            </div>
+          </div>
+
+          <div class="raw-block">
+            <p class="label">Raw Payload</p>
+            <pre class="raw">{{ formatJson(delta.raw) }}</pre>
+          </div>
+        } @else {
+          <p class="empty">No Delta events received yet.</p>
+        }
+      </mat-card-content>
+    </mat-card>
+  </div>
+</section>
