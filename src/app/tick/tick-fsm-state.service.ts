@@ -4,6 +4,7 @@ import { BehaviorSubject } from 'rxjs';
 export type FsmSymbolSnapshot = {
   state: 'NOSIGNAL' | 'NOPOSITION_SIGNAL' | 'BUYPOSITION' | 'NOPOSITION_BLOCKED';
   ltp: number | null;
+  threshold: number | null;
   lastBUYThreshold: number | null;
   lastSELLThreshold: number | null;
 };
@@ -15,5 +16,9 @@ export class TickFsmStateService {
 
   update(snapshot: Map<string, FsmSymbolSnapshot>): void {
     this.subject.next(snapshot);
+  }
+
+  getSnapshot(): Map<string, FsmSymbolSnapshot> {
+    return this.subject.value;
   }
 }

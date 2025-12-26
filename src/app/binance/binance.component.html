@@ -1,9 +1,19 @@
 <section class="binance-page">
+  <header class="binance-header">
+    <a class="back-link" routerLink="/">Back to home</a>
+  </header>
+
   <mat-toolbar color="primary" class="binance-toolbar">
-    <span>Binance BTCUSDT</span>
+    <div class="toolbar-title">
+      <span>Delta Exchange BTCUSD</span>
+      <span class="toolbar-subtitle">Delta Exchange BTCUSD (REST)</span>
+    </div>
     <span class="spacer"></span>
     <span class="toolbar-subhead">Listening on http://localhost:3001</span>
   </mat-toolbar>
+
+  <app-tick [includeBinance]="true" title="Latest BTCUSDT" />
+  <app-webhook filterMode="btc" />
 
   <div class="binance-grid">
     <mat-card class="card">
@@ -43,5 +53,10 @@
         }
       </mat-card-content>
     </mat-card>
+  </div>
+
+  <div class="delta-panels">
+    <app-delta />
+    <app-delta-rest />
   </div>
 </section>

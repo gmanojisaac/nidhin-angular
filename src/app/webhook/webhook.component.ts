@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, inject } from '@angular/core';
+import { Component, Input, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -72,7 +72,12 @@ type TradeState = {
 };
 
 type WebhookEvent =
-  | { type: 'payload'; payload: WebhookPayload; snapshot: Map<string, FsmSymbolSnapshot> }
+  | {
+    type: 'payload';
+    payload: WebhookPayload;
+    snapshot: Map<string, FsmSymbolSnapshot>;
+    allowedSymbols: Set<string> | null;
+  }
   | { type: 'clear' };
 
 @Component({
@@ -96,6 +101,7 @@ export class WebhookComponent {
   private readonly webhookService = inject(WebhookService);
   private readonly fsmStateService = inject(TickFsmStateService);
   private readonly clearSignals$ = new Subject<void>();
+  @Input() filterMode: 'zerodha6' | 'btc' | 'none' = 'none';
 
   selectedSymbol = '';
   readonly displayedColumns = [
@@ -116,10 +122,19 @@ export class WebhookComponent {
     'quantity'
   ];
 
+  private readonly allowedSymbols$ = defer(() => from(this.fetchAllowedSymbols())).pipe(
+    shareReplay({ bufferSize: 1, refCount: true })
+  );
+
   private readonly signalState$ = merge(
     this.webhookService.webhook$.pipe(
-      withLatestFrom(this.fsmStateService.fsmBySymbol$),
-      map(([payload, snapshot]) => ({ type: 'payload', payload, snapshot }) as WebhookEvent)
+      withLatestFrom(this.fsmStateService.fsmBySymbol$, this.allowedSymbols$),
+      map(([payload, snapshot, allowedSymbols]) => ({
+        type: 'payload',
+        payload,
+        snapshot,
+        allowedSymbols
+      }) as WebhookEvent)
     ),
     this.clearSignals$.pipe(map(() => ({ type: 'clear' }) as WebhookEvent))
   ).pipe(
@@ -127,7 +142,7 @@ export class WebhookComponent {
       if (event.type === 'clear') {
         return this.initialSignalState();
       }
-      return this.reduceSignalState(state, event.payload, event.snapshot);
+      return this.reduceSignalState(state, event.payload, event.snapshot, event.allowedSymbols);
     }, this.initialSignalState()),
     startWith(this.initialSignalState()),
     shareReplay({ bufferSize: 1, refCount: true })
@@ -147,8 +162,11 @@ export class WebhookComponent {
   readonly viewModel$ = combineLatest([this.signalState$, this.tradeState$]).pipe(
     map(([signalState, tradeState]) => {
       const state = signalState;
-      if (!this.selectedSymbol && state.symbols.length > 0) {
-        this.selectedSymbol = state.symbols[0];
+      if (
+        (!this.selectedSymbol && state.symbols.length > 0)
+        || (this.selectedSymbol && !state.symbols.includes(this.selectedSymbol))
+      ) {
+        this.selectedSymbol = state.symbols[0] ?? '';
       }
       const activeSymbol = this.selectedSymbol;
       const rows = activeSymbol ? state.bySymbol.get(activeSymbol) ?? [] : [];
@@ -226,7 +244,7 @@ export class WebhookComponent {
       if (isEntering) {
         const entryPrice = ltp;
         const lot = lotLookup.get(symbol) ?? 1;
-        const quantity = Math.ceil(10000 / (lot * ltp));
+        const quantity = Math.ceil(100000 / (lot * ltp));
         const timeIst = this.formatIstTime(new Date());
         const id = `${symbol}-${Date.now()}`;
         const openTrade: OpenTrade = { id, symbol, entryPrice, quantity, lot, timeIst };
@@ -334,13 +352,70 @@ export class WebhookComponent {
     }
   }
 
+  private async fetchAllowedSymbols(): Promise<Set<string> | null> {
+    if (this.filterMode === 'none') {
+      return null;
+    }
+    try {
+      const response = await fetch('/instruments.json', { cache: 'no-store' });
+      if (!response.ok) {
+        return null;
+      }
+      const parsed = await response.json();
+      const meta = Array.isArray(parsed) ? (parsed as InstrumentMeta[]) : [];
+      const symbols = new Set<string>();
+      if (this.filterMode === 'btc') {
+        for (const instrument of meta) {
+          if (instrument.tradingview === 'BTCUSDT' || instrument.zerodha === 'BTCUSD') {
+            if (typeof instrument.tradingview === 'string') {
+              symbols.add(instrument.tradingview);
+            }
+            if (typeof instrument.zerodha === 'string') {
+              symbols.add(instrument.zerodha);
+            }
+          }
+        }
+        if (symbols.size === 0) {
+          symbols.add('BTCUSDT');
+        }
+        return symbols;
+      }
+      if (this.filterMode === 'zerodha6') {
+        let count = 0;
+        for (const instrument of meta) {
+          if (count >= 6) {
+            break;
+          }
+          if (instrument.tradingview === 'BTCUSDT' || instrument.zerodha === 'BTCUSD') {
+            continue;
+          }
+          if (typeof instrument.zerodha === 'string') {
+            symbols.add(instrument.zerodha);
+          }
+          if (typeof instrument.tradingview === 'string') {
+            symbols.add(instrument.tradingview);
+          }
+          count += 1;
+        }
+        return symbols;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   private reduceSignalState(
     state: SignalState,
     payload: WebhookPayload,
-    snapshot: Map<string, FsmSymbolSnapshot>
+    snapshot: Map<string, FsmSymbolSnapshot>,
+    allowedSymbols: Set<string> | null
   ): SignalState {
     const symbol = typeof payload.symbol === 'string' ? payload.symbol : '';
     if (!symbol) {
+      return state;
+    }
+    if (allowedSymbols && !allowedSymbols.has(symbol)) {
       return state;
     }
     const intent = this.normalizeString(payload.intent);

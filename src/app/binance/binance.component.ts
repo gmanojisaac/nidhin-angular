@@ -1,14 +1,29 @@
 import { CommonModule } from '@angular/common';
 import { Component, inject } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatToolbarModule } from '@angular/material/toolbar';
+import { DeltaComponent } from '../delta/delta.component';
+import { DeltaRestComponent } from '../delta-rest/delta-rest.component';
+import { TickComponent } from '../tick/tick.component';
+import { WebhookComponent } from '../webhook/webhook.component';
 import { BinanceService } from './binance.service';
 
 @Component({
   selector: 'app-binance',
   standalone: true,
-  imports: [CommonModule, MatCardModule, MatChipsModule, MatToolbarModule],
+  imports: [
+    CommonModule,
+    RouterLink,
+    MatCardModule,
+    MatChipsModule,
+    MatToolbarModule,
+    DeltaComponent,
+    DeltaRestComponent,
+    TickComponent,
+    WebhookComponent
+  ],
   templateUrl: './binance.component.html',
   styleUrl: './binance.component.css'
 })

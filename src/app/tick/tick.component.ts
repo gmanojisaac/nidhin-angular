@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, inject } from '@angular/core';
+import { Component, Input, inject } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
@@ -78,6 +78,8 @@ export class TickComponent {
   private readonly webhookService = inject(WebhookService);
   private readonly fsmStateService = inject(TickFsmStateService);
   private readonly instrumentLookup$ = this.loadInstrumentMap();
+  @Input() includeBinance = false;
+  @Input() title = 'Latest 6 Instruments';
   readonly displayedColumns = [
     'index',
     'symbol',
@@ -93,10 +95,9 @@ export class TickComponent {
 
   readonly latestTicks$ = combineLatest([
     this.tickState$,
-    this.instrumentLookup$,
-    this.binanceService.binance$.pipe(startWith(null))
+    this.instrumentLookup$
   ]).pipe(
-    map(([state, instrumentLookup, binance]) => {
+    map(([state, instrumentLookup]) => {
       const orderedTicks = [...state.ticks].sort((left, right) => {
         const leftToken = this.getInstrumentToken(left);
         const rightToken = this.getInstrumentToken(right);
@@ -108,20 +109,16 @@ export class TickComponent {
           : instrumentLookup.order.get(rightToken) ?? Number.POSITIVE_INFINITY;
         return leftIndex - rightIndex;
       });
-      const rows = orderedTicks.map((tick) => {
+      const tickRows = orderedTicks.map((tick) => {
         const token = this.getInstrumentToken(tick);
         const fsm = token === null ? null : state.fsmByToken.get(token) ?? this.defaultFsm();
         return this.toRow(tick, instrumentLookup.map, fsm);
       });
-      const binanceFsm = binance?.symbol
-        ? state.fsmBySymbol.get(binance.symbol) ?? this.defaultFsm()
-        : this.defaultFsm();
-      const binanceRow = this.toBinanceRow(binance, binanceFsm);
       const snapshot = this.buildFsmSnapshot(state, instrumentLookup);
-      return {
-        rows: binanceRow ? [...rows, binanceRow] : rows,
-        snapshot
-      };
+      const rows = this.includeBinance
+        ? this.buildBinanceRows(state, snapshot)
+        : tickRows.slice(0, 6);
+      return { rows, snapshot };
     })
   ).pipe(
     map(({ rows, snapshot }) => {
@@ -546,6 +543,28 @@ export class TickComponent {
     };
   }
 
+  private buildBinanceRows(state: TickState, snapshot: Map<string, FsmSymbolSnapshot>): TickRow[] {
+    const rows: TickRow[] = [];
+    for (const [symbol, price] of state.latestBinanceBySymbol.entries()) {
+      if (!this.isBinanceSymbol(symbol)) {
+        continue;
+      }
+      const snap = snapshot.get(symbol);
+      const fsm = snap
+        ? {
+          ...this.defaultFsm(),
+          state: snap.state,
+          threshold: snap.threshold,
+          lastBUYThreshold: snap.lastBUYThreshold,
+          lastSELLThreshold: snap.lastSELLThreshold
+        }
+        : state.fsmBySymbol.get(symbol) ?? this.defaultFsm();
+      rows.push(this.toStateRow(symbol, price, fsm));
+    }
+    return rows;
+  }
+
+
   private loadInstrumentMap() {
     return defer(() => from(this.fetchInstrumentMap())).pipe(
       shareReplay({ bufferSize: 1, refCount: true })
@@ -561,6 +580,7 @@ export class TickComponent {
         snapshot.set(symbol, {
           state: fsm.state,
           ltp,
+          threshold: fsm.threshold,
           lastBUYThreshold: fsm.lastBUYThreshold,
           lastSELLThreshold: fsm.lastSELLThreshold
         });
@@ -571,6 +591,7 @@ export class TickComponent {
       snapshot.set(symbol, {
         state: fsm.state,
         ltp,
+        threshold: fsm.threshold,
         lastBUYThreshold: fsm.lastBUYThreshold,
         lastSELLThreshold: fsm.lastSELLThreshold
       });

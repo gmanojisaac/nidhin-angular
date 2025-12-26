@@ -14,9 +14,52 @@
   padding: 3rem 1.5rem 4rem;
 }
 
+.binance-header {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 1.5rem;
+}
+
 .binance-toolbar {
   border-radius: 20px;
   margin-bottom: 2rem;
+  background: #1f2a44;
+  color: #ffffff;
+}
+
+.toolbar-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-weight: 600;
+}
+
+.toolbar-subtitle {
+  font-size: 0.8rem;
+  opacity: 0.85;
+  font-weight: 500;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  background: #0c1b2a;
+  color: #fdf4de;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: "Trebuchet MS", "Gill Sans MT", "Calibri", sans-serif;
+  letter-spacing: 0.02em;
+  box-shadow: 0 8px 18px rgba(12, 27, 42, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.back-link:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(12, 27, 42, 0.25);
 }
 
 .spacer {
@@ -32,6 +75,12 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 1.5rem;
+}
+
+.delta-panels {
+  margin-top: 2rem;
+  display: grid;
+  gap: 2rem;
 }
 
 .card {
@@ -88,3 +137,4 @@
     padding: 2rem 1rem 3rem;
   }
 }
+

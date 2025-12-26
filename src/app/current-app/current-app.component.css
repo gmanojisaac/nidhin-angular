@@ -1,0 +1,36 @@
+.current-app {
+  display: grid;
+  gap: 24px;
+  padding: 24px;
+}
+
+.current-header {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  background: #0c1b2a;
+  color: #fdf4de;
+  font-weight: 600;
+  font-family: "Trebuchet MS", "Gill Sans MT", "Calibri", sans-serif;
+  box-shadow: 0 8px 18px rgba(12, 27, 42, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.back-link:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(12, 27, 42, 0.25);
+}
+
+@media (max-width: 720px) {
+  .current-app {
+    padding: 16px;
+  }
+}
