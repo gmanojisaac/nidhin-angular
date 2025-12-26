@@ -19,20 +19,16 @@ export class DeltaService implements OnDestroy {
     this.socket = io('http://localhost:3001');
 
     this.socket.on('connect', () => {
-      console.log('[delta] socket connected', this.socket.id);
     });
 
     this.socket.on('disconnect', (reason) => {
-      console.warn('[delta] socket disconnected', reason);
     });
 
     this.socket.on('connect_error', (error) => {
-      console.error('[delta] socket connect error', error);
     });
 
     this.delta$ = new Observable<DeltaPayload>((subscriber) => {
       const handler = (payload: DeltaPayload) => {
-        console.log('[delta] payload received', payload);
         subscriber.next(payload);
       };
       this.socket.on('delta:ws', handler);
