@@ -1,0 +1,61 @@
+<section class="relay-page">
+  <header class="relay-header">
+    <a class="back-link" routerLink="/">Back to home</a>
+    <div>
+      <h1>Signal Relay</h1>
+      <p>Forward TradingView webhooks to another IP address.</p>
+    </div>
+  </header>
+
+  <div class="relay-card">
+    <div class="field">
+      <label for="relay-ip">Target IP</label>
+      <input id="relay-ip" type="text" [(ngModel)]="ipAddress" (blur)="saveSettings()" placeholder="192.168.1.20" />
+    </div>
+    <div class="field">
+      <label for="relay-port">Port</label>
+      <input id="relay-port" type="text" [(ngModel)]="port" (blur)="saveSettings()" placeholder="3001" />
+    </div>
+    <div class="field toggle">
+      <label>
+        <input type="checkbox" [(ngModel)]="enabled" (change)="saveSettings()" />
+        Enable relay
+      </label>
+    </div>
+    <div class="field">
+      <label>Relay URL</label>
+      <div class="url">{{ currentUrl() }}</div>
+    </div>
+    <div class="actions">
+      <button type="button" (click)="relayNow()">Send Test Signal</button>
+    </div>
+  </div>
+
+  <div class="relay-card">
+    <h2>Recent Attempts</h2>
+    @if (attempts.length > 0) {
+      <table class="attempts">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Status</th>
+            <th>Detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (attempt of attempts; track attempt.time) {
+            <tr>
+              <td>{{ attempt.time }}</td>
+              <td class="status" [class.ok]="attempt.status === 'success'" [class.err]="attempt.status === 'error'">
+                {{ attempt.status }}
+              </td>
+              <td>{{ attempt.detail }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    } @else {
+      <p class="empty">No relay attempts yet.</p>
+    }
+  </div>
+</section>

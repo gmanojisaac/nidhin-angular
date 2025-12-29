@@ -1,0 +1,14 @@
+<section class="combined-page">
+  <header class="combined-header">
+    <a class="back-link" routerLink="/">Back to home</a>
+    <div class="combined-title">
+      <h1>BTCUSDT Combined</h1>
+      <p>BTCUSDT Long and Short stacked in one view.</p>
+    </div>
+  </header>
+
+  <div class="combined-stack">
+    <app-btc-long [showHeader]="false" [showBinanceCard]="false" [showDeltaPanels]="false" />
+    <app-btc-short [showHeader]="false" [showBinanceCard]="false" [showDeltaPanels]="false" />
+  </div>
+</section>

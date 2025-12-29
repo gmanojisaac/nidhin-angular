@@ -35,7 +35,11 @@ export class WebhookService implements OnDestroy {
 
     this.webhook$ = new Observable<WebhookPayload>((subscriber) => {
       const handler = (payload: WebhookPayload) => {
-        console.log('[webhook] payload received', payload);
+        try {
+          console.log(`[webhook] payload received ${JSON.stringify(payload)}`);
+        } catch {
+          console.log('[webhook] payload received [unserializable payload]');
+        }
         subscriber.next(payload);
       };
       this.socket.on('webhook', handler);

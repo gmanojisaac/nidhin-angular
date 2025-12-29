@@ -24,7 +24,7 @@ type InstrumentLookup = {
   tokenSymbols: Map<number, string[]>;
 };
 
-type FsmState = 'NOSIGNAL' | 'NOPOSITION_SIGNAL' | 'BUYPOSITION' | 'NOPOSITION_BLOCKED';
+type FsmState = 'NOSIGNAL' | 'NOPOSITION_SIGNAL' | 'BUYPOSITION' | 'SELLPOSITION' | 'NOPOSITION_BLOCKED';
 
 type InstrumentFsm = {
   state: FsmState;
@@ -77,8 +77,11 @@ export class TickComponent {
   private readonly binanceService = inject(BinanceService);
   private readonly webhookService = inject(WebhookService);
   private readonly fsmStateService = inject(TickFsmStateService);
+  private loggedMissingBtcThreshold = false;
+  private lastZerodhaLogAt = 0;
   private readonly instrumentLookup$ = this.loadInstrumentMap();
   @Input() includeBinance = false;
+  @Input() binanceSymbols: string[] | null = null;
   @Input() title = 'Latest 6 Instruments';
   readonly displayedColumns = [
     'index',
@@ -122,7 +125,22 @@ export class TickComponent {
     })
   ).pipe(
     map(({ rows, snapshot }) => {
-      this.fsmStateService.update(snapshot);
+      const current = this.fsmStateService.getSnapshot();
+      let nextSnapshot = snapshot.size === 0 && current.size > 0 ? current : snapshot;
+      if (this.includeBinance) {
+        const symbols = this.getBinanceSymbols();
+        for (const symbol of symbols) {
+          if (current.has(symbol) && !nextSnapshot.has(symbol)) {
+            nextSnapshot = new Map(nextSnapshot);
+            const existing = current.get(symbol);
+            if (existing) {
+              nextSnapshot.set(symbol, existing);
+            }
+          }
+        }
+      }
+      this.fsmStateService.update(nextSnapshot);
+      this.logZerodhaRows(rows);
       return rows;
     })
   );
@@ -156,7 +174,9 @@ export class TickComponent {
       map(([payload, lookup]) => {
         const isBinanceSymbol = this.isBinanceSymbol(payload.symbol);
         const token = isBinanceSymbol ? null : this.getTokenForSymbol(payload.symbol, lookup.symbolLookup);
-        console.log('[tick] webhook mapped', { symbol: payload.symbol, token, bySymbol: isBinanceSymbol });
+        console.log(
+          `[tick] webhook mapped symbol=${payload.symbol ?? '--'} token=${token ?? '--'} bySymbol=${isBinanceSymbol}`
+        );
         return {
           type: 'signal',
           payload,
@@ -219,19 +239,7 @@ export class TickComponent {
     if (event.type === 'signal') {
       const signal = this.getSignalType(event.payload);
       if (this.isBinanceSymbol(event.payload.symbol)) {
-        const fsmBySymbol = new Map(state.fsmBySymbol);
-        const existing = fsmBySymbol.get(event.payload.symbol) ?? this.defaultFsm();
-        const binanceFallback = this.getBinanceFallbackLtp(event.payload.symbol, state.latestBinanceBySymbol);
-        const next = this.applySignalTransition(
-          existing,
-          signal,
-          event.payload,
-          binanceFallback,
-          event.receivedAt
-        );
-        this.logFsmTransition('signal', event.payload.symbol, existing, next, binanceFallback, event.receivedAt);
-        fsmBySymbol.set(event.payload.symbol, next);
-        return { ...state, fsmBySymbol };
+        return state;
       }
       const fsmByToken = new Map(state.fsmByToken);
       const token = event.token;
@@ -268,6 +276,9 @@ export class TickComponent {
       const latestBinanceBySymbol = new Map(state.latestBinanceBySymbol);
       if (symbol) {
         latestBinanceBySymbol.set(symbol, price);
+        if (this.isBinanceSymbol(symbol)) {
+          this.fsmStateService.updateLastPrice(symbol, price);
+        }
       }
       const fsmByToken = new Map(state.fsmByToken);
       if (token !== null) {
@@ -281,19 +292,7 @@ export class TickComponent {
         }
         fsmByToken.set(token, result.next);
       }
-      const fsmBySymbol = new Map(state.fsmBySymbol);
-      if (this.isBinanceSymbol(symbol)) {
-        const existing = fsmBySymbol.get(symbol) ?? this.defaultFsm();
-        const result = this.applyTickTransition(existing, price, event.receivedAt);
-        if (result.intermediate) {
-          this.logFsmTransition('binance', symbol, existing, result.intermediate, price, event.receivedAt);
-          this.logFsmTransition('binance', symbol, result.intermediate, result.next, price, event.receivedAt);
-        } else {
-          this.logFsmTransition('binance', symbol, existing, result.next, price, event.receivedAt);
-        }
-        fsmBySymbol.set(symbol, result.next);
-      }
-      return { ...state, latestLtpByToken, latestBinanceBySymbol, fsmByToken, fsmBySymbol };
+      return { ...state, latestLtpByToken, latestBinanceBySymbol, fsmByToken, fsmBySymbol: state.fsmBySymbol };
     }
 
     return state;
@@ -432,6 +431,14 @@ export class TickComponent {
     return null;
   }
 
+  getPositionLabel(): string {
+    const symbols = this.getBinanceSymbols();
+    const isShort = this.includeBinance
+      && symbols.length > 0
+      && symbols.every((symbol) => symbol.endsWith('_SHORT'));
+    return isShort ? 'SELLPOSITION' : 'BUYPOSITION';
+  }
+
   private getTokenForSymbol(symbol: string | undefined, lookup: Map<string, number>): number | null {
     if (!symbol) {
       return null;
@@ -461,15 +468,9 @@ export class TickComponent {
     if (prev.state === next.state && prev.threshold === next.threshold) {
       return;
     }
-    console.log('[tick] fsm transition', {
-      source,
-      symbol: symbol ?? '--',
-      prevState: prev.state,
-      nextState: next.state,
-      threshold: next.threshold,
-      ltp,
-      at: new Date(receivedAt).toISOString()
-    });
+    console.log(
+      `[tick] fsm transition source=${source} symbol=${symbol ?? '--'} prev=${prev.state} next=${next.state} threshold=${next.threshold ?? '--'} ltp=${ltp ?? '--'} at=${new Date(receivedAt).toISOString()}`
+    );
   }
 
   private defaultFsm(): InstrumentFsm {
@@ -538,30 +539,88 @@ export class TickComponent {
       threshold: fsm.threshold,
       noSignal: fsm.state === 'NOSIGNAL',
       noPositionSignal: fsm.state === 'NOPOSITION_SIGNAL',
-      buyPosition: fsm.state === 'BUYPOSITION',
+      buyPosition: fsm.state === 'BUYPOSITION' || fsm.state === 'SELLPOSITION',
       noPositionBlocked: fsm.state === 'NOPOSITION_BLOCKED'
     };
   }
 
   private buildBinanceRows(state: TickState, snapshot: Map<string, FsmSymbolSnapshot>): TickRow[] {
     const rows: TickRow[] = [];
-    for (const [symbol, price] of state.latestBinanceBySymbol.entries()) {
-      if (!this.isBinanceSymbol(symbol)) {
-        continue;
-      }
-      const snap = snapshot.get(symbol);
+    const persistedSnapshot = this.fsmStateService.getSnapshot();
+    const priceBySymbol = new Map(state.latestBinanceBySymbol);
+    const symbolsToRender = this.getBinanceSymbols();
+    for (const symbol of symbolsToRender) {
+      const snap = snapshot.get(symbol) ?? persistedSnapshot.get(symbol);
+      const fallbackThreshold = this.fsmStateService.getLastThreshold(symbol);
       const fsm = snap
         ? {
           ...this.defaultFsm(),
           state: snap.state,
-          threshold: snap.threshold,
+          threshold: snap.threshold ?? fallbackThreshold,
           lastBUYThreshold: snap.lastBUYThreshold,
           lastSELLThreshold: snap.lastSELLThreshold
         }
-        : state.fsmBySymbol.get(symbol) ?? this.defaultFsm();
+        : {
+          ...(state.fsmBySymbol.get(symbol) ?? this.defaultFsm()),
+          threshold: fallbackThreshold ?? (state.fsmBySymbol.get(symbol)?.threshold ?? null)
+        };
+      const price = this.getBinancePriceForSymbol(symbol, priceBySymbol, snap?.ltp ?? null);
+      if (!this.loggedMissingBtcThreshold && fsm.threshold === null) {
+        this.loggedMissingBtcThreshold = true;
+        console.log(
+          `[btc-row] symbol=${symbol} price=${price ?? '--'} threshold=${fsm.threshold ?? '--'} state=${fsm.state}`
+        );
+      }
       rows.push(this.toStateRow(symbol, price, fsm));
     }
     return rows;
+  }
+
+  private logZerodhaRows(rows: TickRow[]): void {
+    if (this.includeBinance || rows.length === 0) {
+      return;
+    }
+    const now = Date.now();
+    if (now - this.lastZerodhaLogAt < 5000) {
+      return;
+    }
+    this.lastZerodhaLogAt = now;
+    const symbols = rows.map((row) => row.symbol ?? '--').join(', ');
+    console.log(`[zerodha6] rows=${rows.length} symbols=${symbols}`);
+  }
+
+  private getBinanceSymbols(): string[] {
+    if (this.binanceSymbols && this.binanceSymbols.length > 0) {
+      return this.binanceSymbols;
+    }
+    return ['BTCUSDT'];
+  }
+
+  private getBinancePriceForSymbol(
+    symbol: string,
+    latestBySymbol: Map<string, number>,
+    snapshotLtp: number | null
+  ): number | null {
+    const direct = latestBySymbol.get(symbol);
+    if (direct !== undefined) {
+      return direct;
+    }
+    const persisted = this.fsmStateService.getLastPrice(symbol);
+    if (persisted !== null) {
+      return persisted;
+    }
+    if (symbol.endsWith('_LONG') || symbol.endsWith('_SHORT')) {
+      const baseSymbol = symbol.replace(/_(LONG|SHORT)$/, '');
+      const basePrice = latestBySymbol.get(baseSymbol);
+      if (basePrice !== undefined) {
+        return basePrice;
+      }
+      const basePersisted = this.fsmStateService.getLastPrice(baseSymbol);
+      if (basePersisted !== null) {
+        return basePersisted;
+      }
+    }
+    return snapshotLtp ?? null;
   }
 
 

@@ -1,0 +1,68 @@
+<section class="binance-page">
+  @if (showHeader) {
+    <header class="binance-header">
+      <a class="back-link" routerLink="/">Back to home</a>
+    </header>
+  }
+
+  <mat-toolbar color="primary" class="binance-toolbar">
+    <div class="toolbar-title">
+      <span>Delta Exchange BTCUSD Short</span>
+      <span class="toolbar-subtitle">Delta Exchange BTCUSD Short (REST)</span>
+    </div>
+    <span class="spacer"></span>
+    <span class="toolbar-subhead">Listening on http://localhost:3001</span>
+  </mat-toolbar>
+
+  <app-tick [includeBinance]="true" [binanceSymbols]="['BTCUSDT_SHORT']" title="Latest BTCUSDT Short" />
+  <app-webhook filterMode="btc-short" />
+
+  @if (showBinanceCard) {
+    <div class="binance-grid">
+      <mat-card class="card">
+        <mat-card-header>
+          <mat-card-title>Latest Binance Tick (Short)</mat-card-title>
+          <mat-chip-set>
+            <mat-chip color="accent" selected>Live</mat-chip>
+          </mat-chip-set>
+        </mat-card-header>
+        <mat-card-content>
+          @if (latestBinance$ | async; as binance) {
+            <div class="payload-grid">
+              <div>
+                <p class="label">Exchange</p>
+                <p class="value">{{ binance.exchange ?? '--' }}</p>
+              </div>
+              <div>
+                <p class="label">Symbol</p>
+                <p class="value">{{ binance.symbol ?? '--' }}</p>
+              </div>
+              <div>
+                <p class="label">Price</p>
+                <p class="value">{{ formatPrice(binance.price) }}</p>
+              </div>
+              <div>
+                <p class="label">Time</p>
+                <p class="value">{{ formatTimestamp(binance.timestamp) }}</p>
+              </div>
+            </div>
+
+            <div class="raw-block">
+              <p class="label">Raw Payload</p>
+              <pre class="raw">{{ formatJson(binance.raw) }}</pre>
+            </div>
+          } @else {
+            <p class="empty">No Binance events received yet.</p>
+          }
+        </mat-card-content>
+      </mat-card>
+    </div>
+  }
+
+  @if (showDeltaPanels) {
+    <div class="delta-panels">
+      <app-delta />
+      <app-delta-rest />
+    </div>
+  }
+</section>

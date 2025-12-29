@@ -67,6 +67,11 @@
   overflow-x: auto;
 }
 
+.trade-wrap {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

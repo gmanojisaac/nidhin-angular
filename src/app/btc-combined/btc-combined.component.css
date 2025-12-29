@@ -1,0 +1,66 @@
+:host {
+  display: block;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f7f2e8 0%, #f0f6ff 100%);
+  color: #1f2a44;
+  font-family: "Manrope", "Segoe UI", sans-serif;
+}
+
+.combined-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 4rem;
+  display: grid;
+  gap: 2rem;
+}
+
+.combined-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+
+.combined-title h1 {
+  margin: 0 0 0.35rem;
+  font-size: 2rem;
+}
+
+.combined-title p {
+  margin: 0;
+  color: #5b667e;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  background: #0c1b2a;
+  color: #fdf4de;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: "Trebuchet MS", "Gill Sans MT", "Calibri", sans-serif;
+  letter-spacing: 0.02em;
+  box-shadow: 0 8px 18px rgba(12, 27, 42, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.back-link:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(12, 27, 42, 0.25);
+}
+
+.combined-stack {
+  display: grid;
+  gap: 2.5rem;
+}
+
+@media (max-width: 720px) {
+  .combined-page {
+    padding: 2rem 1rem 3rem;
+  }
+}

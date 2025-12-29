@@ -1,13 +1,13 @@
 import { Injectable, OnDestroy } from '@angular/core';
 import { io, Socket } from 'socket.io-client';
-import { from, merge, Observable, share, shareReplay, take } from 'rxjs';
+import { defer, from, merge, Observable, share, shareReplay, take } from 'rxjs';
 
 export type Tick = unknown;
 
 @Injectable({ providedIn: 'root' })
 export class TickService implements OnDestroy {
   private readonly socket: Socket;
-  private readonly tickStream$: Observable<Tick>;
+  private readonly liveTicks$: Observable<Tick>;
   private readonly cacheKey = 'tick-cache-latest';
 
   readonly ticks$: Observable<Tick>;
@@ -44,12 +44,10 @@ export class TickService implements OnDestroy {
       return () => this.socket.off('ticks', handler);
     });
 
-    const cachedTicks$ = from(this.readCache());
+    this.liveTicks$ = liveTicks$.pipe(share());
 
-    this.tickStream$ = merge(cachedTicks$, liveTicks$).pipe(share());
-
-    this.ticks$ = this.tickStream$;
-    this.firstTick$ = this.tickStream$.pipe(
+    this.ticks$ = defer(() => merge(from(this.readCache()), this.liveTicks$));
+    this.firstTick$ = this.ticks$.pipe(
       take(1),
       shareReplay({ bufferSize: 1, refCount: true })
     );
@@ -91,10 +89,37 @@ export class TickService implements OnDestroy {
       return;
     }
     try {
+      if (!this.isMarketOpen()) {
+        const existing = this.readCache();
+        if (existing.length >= ticks.length) {
+          return;
+        }
+      }
       localStorage.setItem(this.cacheKey, JSON.stringify(ticks));
     } catch {
       // Ignore cache errors (quota, unsupported, etc.).
     }
+  }
+
+  private isMarketOpen(now: Date = new Date()): boolean {
+    const parts = new Intl.DateTimeFormat('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour12: false,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).formatToParts(now);
+    const weekday = parts.find((part) => part.type === 'weekday')?.value ?? '';
+    const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0');
+    const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? '0');
+    const isWeekend = weekday === 'Sat' || weekday === 'Sun';
+    if (isWeekend) {
+      return false;
+    }
+    const minutes = hour * 60 + minute;
+    const openAt = 9 * 60 + 15;
+    const closeAt = 15 * 60 + 30;
+    return minutes >= openAt && minutes <= closeAt;
   }
 }
 

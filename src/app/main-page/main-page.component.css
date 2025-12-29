@@ -89,6 +89,17 @@ h1 {
   color: #fdf4de;
 }
 
+.cta.ghost {
+  background: rgba(12, 27, 42, 0.08);
+  color: #0c1b2a;
+  border: 1px dashed rgba(12, 27, 42, 0.35);
+  box-shadow: none;
+}
+
+.cta.ghost:hover {
+  background: rgba(12, 27, 42, 0.18);
+}
+
 .panels {
   display: grid;
   gap: 20px;

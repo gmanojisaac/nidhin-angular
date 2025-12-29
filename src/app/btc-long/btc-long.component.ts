@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnDestroy, OnInit, inject } from '@angular/core';
+import { Component, Input, OnDestroy, OnInit, inject } from '@angular/core';
 import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
@@ -9,10 +9,10 @@ import { DeltaComponent } from '../delta/delta.component';
 import { DeltaRestComponent } from '../delta-rest/delta-rest.component';
 import { TickComponent } from '../tick/tick.component';
 import { WebhookComponent } from '../webhook/webhook.component';
-import { BinanceService } from './binance.service';
+import { BinanceService } from '../binance/binance.service';
 
 @Component({
-  selector: 'app-binance',
+  selector: 'app-btc-long',
   standalone: true,
   imports: [
     CommonModule,
@@ -25,18 +25,21 @@ import { BinanceService } from './binance.service';
     TickComponent,
     WebhookComponent
   ],
-  templateUrl: './binance.component.html',
-  styleUrl: './binance.component.css'
+  templateUrl: './btc-long.component.html',
+  styleUrl: './btc-long.component.css'
 })
-export class BinanceComponent implements OnInit, OnDestroy {
+export class BtcLongComponent implements OnInit, OnDestroy {
   private readonly binanceService = inject(BinanceService);
   private readonly router = inject(Router);
   private navSub: Subscription | null = null;
   readonly latestBinance$ = this.binanceService.binance$;
+  @Input() showHeader = true;
+  @Input() showBinanceCard = true;
+  @Input() showDeltaPanels = true;
 
   ngOnInit(): void {
-    console.log('[btc] component init');
-    console.log(`[btc] enter url=${this.router.url}`);
+    console.log('[btc-long] component init');
+    console.log(`[btc-long] enter url=${this.router.url}`);
     this.navSub = this.router.events.pipe(
       filter((event) => event instanceof NavigationEnd)
     ).subscribe((event) => {
@@ -46,7 +49,7 @@ export class BinanceComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    console.log('[btc] destroy');
+    console.log('[btc-long] destroy');
     this.navSub?.unsubscribe();
     this.navSub = null;
   }

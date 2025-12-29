@@ -1,0 +1,142 @@
+:host {
+  display: block;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f0f5ff 0%, #f7f2e8 100%);
+  color: #1f2a44;
+  font-family: "Manrope", "Segoe UI", sans-serif;
+}
+
+.relay-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 4rem;
+}
+
+.relay-header {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.relay-header h1 {
+  margin: 0;
+  font-size: 2rem;
+}
+
+.relay-header p {
+  margin: 0.35rem 0 0;
+  color: #6b748a;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  background: #0c1b2a;
+  color: #fdf4de;
+  font-weight: 600;
+  font-family: "Trebuchet MS", "Gill Sans MT", "Calibri", sans-serif;
+  box-shadow: 0 8px 18px rgba(12, 27, 42, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.back-link:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(12, 27, 42, 0.25);
+}
+
+.relay-card {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 20px;
+  padding: 1.5rem;
+  box-shadow: 0 16px 40px rgba(31, 42, 68, 0.08);
+  border: 1px solid rgba(31, 42, 68, 0.06);
+  margin-bottom: 1.5rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.field label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #3e4963;
+}
+
+.field input[type="text"] {
+  padding: 0.6rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(31, 42, 68, 0.2);
+  font-size: 0.95rem;
+}
+
+.toggle label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.url {
+  font-family: "Courier New", monospace;
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px;
+  background: #121826;
+  color: #f4f7ff;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.actions button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.6rem 1.25rem;
+  background: #1f2a44;
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.attempts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.attempts th,
+.attempts td {
+  text-align: left;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(31, 42, 68, 0.08);
+}
+
+.status.ok {
+  color: #117a39;
+  font-weight: 600;
+}
+
+.status.err {
+  color: #b42318;
+  font-weight: 600;
+}
+
+.empty {
+  color: #8a94a6;
+}
+
+@media (max-width: 700px) {
+  .relay-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

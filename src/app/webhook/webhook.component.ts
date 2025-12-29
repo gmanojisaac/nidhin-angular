@@ -11,6 +11,22 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { BehaviorSubject, combineLatest, map, switchMap, tap } from 'rxjs';
 import { FilterMode, WebhookStateService } from './webhook-state.service';
 
+type TradeRow = {
+  id: string;
+  timeIst: string;
+  symbol: string;
+  entryPrice: number | null;
+  currentPrice: number | null;
+  unrealizedPnl: number | null;
+  cumulativePnl: number | null;
+  quantity: number | null;
+};
+
+type BtcLiveRow = TradeRow & {
+  openTime: string;
+  closeTime: string;
+};
+
 @Component({
   selector: 'app-webhook',
   standalone: true,
@@ -57,6 +73,14 @@ export class WebhookComponent {
     'cumulativePnl',
     'quantity'
   ];
+  readonly shortLiveColumns = [
+    'openTime',
+    'openPrice',
+    'closeTime',
+    'closePrice',
+    'unrealizedPnl',
+    'cumulativePnl'
+  ];
 
   private readonly signalState$ = this.filterMode$.pipe(
     switchMap((mode) => this.webhookStateService.signalState$(mode))
@@ -74,14 +98,22 @@ export class WebhookComponent {
       }
       const activeSymbol = this.selectedSymbol;
       const rows = activeSymbol ? state.bySymbol.get(activeSymbol) ?? [] : [];
-      const paperRows = activeSymbol ? tradeState.tradesBySymbol.get(activeSymbol) ?? [] : [];
-      const liveRows = activeSymbol ? state.liveTradesBySymbol.get(activeSymbol) ?? [] : [];
+      const paperRows: TradeRow[] = activeSymbol ? tradeState.tradesBySymbol.get(activeSymbol) ?? [] : [];
+      const paperRowsBtc: BtcLiveRow[] = activeSymbol ? this.buildBtcPaperRows(tradeState, activeSymbol) : [];
+      const liveRows: TradeRow[] = activeSymbol ? tradeState.liveTradesBySymbol.get(activeSymbol) ?? [] : [];
+      const liveRowsBtc: BtcLiveRow[] = activeSymbol ? this.buildBtcLiveRows(tradeState, activeSymbol) : [];
       return {
         symbols: state.symbols,
         activeSymbol,
         rows,
         paperRows,
-        liveRows
+        paperRowsBtc,
+        liveRows,
+        liveRowsBtc,
+        isBtcMode: this.isBtcMode(),
+        isBtcShort: this.isBtcShortMode(),
+        isTradeCompactMode: this.isTradeCompactMode(),
+        isSignalCompactMode: this.isSignalCompactMode()
       };
     }),
     tap((vm) => {
@@ -112,5 +144,77 @@ export class WebhookComponent {
       return '--';
     }
     return value.toFixed(2);
+  }
+
+  isBtcMode(): boolean {
+    return this.currentMode === 'btc' || this.currentMode === 'btc-long' || this.currentMode === 'btc-short';
+  }
+
+  isBtcShortMode(): boolean {
+    return this.currentMode === 'btc-short';
+  }
+
+  isTradeCompactMode(): boolean {
+    return this.isBtcMode() || this.currentMode === 'zerodha6';
+  }
+
+  isSignalCompactMode(): boolean {
+    return this.isBtcMode();
+  }
+
+  private buildBtcLiveRows(
+    tradeState: {
+      liveTradesBySymbol: Map<string, TradeRow[]>;
+    },
+    activeSymbol: string
+  ): BtcLiveRow[] {
+    const liveRows = tradeState.liveTradesBySymbol.get(activeSymbol) ?? [];
+    const byId = new Map(liveRows.map((row) => [row.id, row]));
+    return liveRows.map((row) => {
+      const isExit = row.id.endsWith('-exit');
+      const baseId = isExit ? row.id.replace(/-exit$/, '') : row.id;
+      const openRow = byId.get(baseId);
+      return {
+        ...row,
+        openTime: this.extractTime(openRow?.timeIst ?? (isExit ? '--' : row.timeIst)),
+        openPrice: openRow?.entryPrice ?? row.entryPrice,
+        closeTime: isExit ? this.extractTime(row.timeIst) : '--',
+        closePrice: isExit ? row.currentPrice : null,
+        unrealizedPnl: row.unrealizedPnl,
+        cumulativePnl: row.cumulativePnl
+      };
+    });
+  }
+
+  private buildBtcPaperRows(
+    tradeState: {
+      tradesBySymbol: Map<string, TradeRow[]>;
+    },
+    activeSymbol: string
+  ): BtcLiveRow[] {
+    const rows = tradeState.tradesBySymbol.get(activeSymbol) ?? [];
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return rows.map((row) => {
+      const isExit = row.id.endsWith('-exit');
+      const baseId = isExit ? row.id.replace(/-exit$/, '') : row.id;
+      const openRow = byId.get(baseId);
+      return {
+        ...row,
+        openTime: this.extractTime(openRow?.timeIst ?? (isExit ? '--' : row.timeIst)),
+        openPrice: openRow?.entryPrice ?? row.entryPrice,
+        closeTime: isExit ? this.extractTime(row.timeIst) : '--',
+        closePrice: isExit ? row.currentPrice : null,
+        unrealizedPnl: row.unrealizedPnl,
+        cumulativePnl: row.cumulativePnl
+      };
+    });
+  }
+
+  private extractTime(value: string): string {
+    if (!value || value === '--') {
+      return '--';
+    }
+    const parts = value.trim().split(' ');
+    return parts[1] ?? value;
   }
 }

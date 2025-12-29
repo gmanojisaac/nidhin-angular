@@ -49,7 +49,7 @@
               </ng-container>
 
               <ng-container matColumnDef="buyPosition">
-                <th mat-header-cell *matHeaderCellDef>BUYPOSITION</th>
+                <th mat-header-cell *matHeaderCellDef>{{ getPositionLabel() }}</th>
                 <td mat-cell *matCellDef="let row">{{ row.buyPosition }}</td>
               </ng-container>
 
