@@ -102,6 +102,15 @@ export class WebhookComponent {
       const paperRowsBtc: BtcLiveRow[] = activeSymbol ? this.buildBtcPaperRows(tradeState, activeSymbol) : [];
       const liveRows: TradeRow[] = activeSymbol ? tradeState.liveTradesBySymbol.get(activeSymbol) ?? [] : [];
       const liveRowsBtc: BtcLiveRow[] = activeSymbol ? this.buildBtcLiveRows(tradeState, activeSymbol) : [];
+      const paperBlockedUntilText = activeSymbol
+        ? this.getPaperBlockedUntilText(tradeState, activeSymbol)
+        : null;
+      const blockedUntil = activeSymbol
+        ? this.webhookStateService.getLiveTradeBlockedUntil(activeSymbol)
+        : null;
+      const blockedUntilText = blockedUntil && blockedUntil > Date.now()
+        ? this.formatIstHm(new Date(blockedUntil))
+        : null;
       return {
         symbols: state.symbols,
         activeSymbol,
@@ -110,6 +119,8 @@ export class WebhookComponent {
         paperRowsBtc,
         liveRows,
         liveRowsBtc,
+        paperBlockedUntilText,
+        blockedUntilText,
         isBtcMode: this.isBtcMode(),
         isBtcShort: this.isBtcShortMode(),
         isTradeCompactMode: this.isTradeCompactMode(),
@@ -216,5 +227,28 @@ export class WebhookComponent {
     }
     const parts = value.trim().split(' ');
     return parts[1] ?? value;
+  }
+
+  private getPaperBlockedUntilText(
+    tradeState: { lastSnapshotBySymbol: Map<string, { state: string; lastBlockedAtMs: number | null }> },
+    symbol: string
+  ): string | null {
+    const snap = tradeState.lastSnapshotBySymbol.get(symbol);
+    if (!snap || snap.state !== 'NOPOSITION_BLOCKED' || snap.lastBlockedAtMs === null) {
+      return null;
+    }
+    const blockedUntil = new Date(snap.lastBlockedAtMs);
+    blockedUntil.setSeconds(0, 0);
+    blockedUntil.setMinutes(blockedUntil.getMinutes() + 1);
+    return this.formatIstHm(blockedUntil);
+  }
+
+  private formatIstHm(value: Date): string {
+    return value.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   }
 }

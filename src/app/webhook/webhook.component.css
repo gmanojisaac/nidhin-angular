@@ -98,6 +98,12 @@ tbody td {
   color: #8a94a6;
 }
 
+.blocked-note {
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+  color: #6b748a;
+}
+
 @media (max-width: 600px) {
   .webhook-page {
     padding: 2rem 1rem 3rem;

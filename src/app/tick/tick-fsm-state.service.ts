@@ -7,6 +7,7 @@ export type FsmSymbolSnapshot = {
   threshold: number | null;
   lastBUYThreshold: number | null;
   lastSELLThreshold: number | null;
+  lastBlockedAtMs: number | null;
 };
 
 @Injectable({ providedIn: 'root' })
@@ -64,6 +65,7 @@ export class TickFsmStateService {
       || prev.threshold !== next.threshold
       || prev.lastBUYThreshold !== next.lastBUYThreshold
       || prev.lastSELLThreshold !== next.lastSELLThreshold
+      || prev.lastBlockedAtMs !== next.lastBlockedAtMs
     );
     if (!changed) {
       return false;

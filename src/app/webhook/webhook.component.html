@@ -91,6 +91,9 @@
               </mat-select>
             </mat-form-field>
           </div>
+          @if (vm.paperBlockedUntilText) {
+            <p class="blocked-note">Paper trade blocked until {{ vm.paperBlockedUntilText }}</p>
+          }
           @if (vm.isTradeCompactMode ? vm.paperRowsBtc.length > 0 : vm.paperRows.length > 0) {
             <div class="table-wrap trade-wrap">
               @if (vm.isTradeCompactMode) {
@@ -193,6 +196,9 @@
               </mat-select>
             </mat-form-field>
           </div>
+          @if (vm.blockedUntilText) {
+            <p class="blocked-note">Live entry blocked until {{ vm.blockedUntilText }}</p>
+          }
           @if (vm.isTradeCompactMode ? vm.liveRowsBtc.length > 0 : vm.liveRows.length > 0) {
             <div class="table-wrap trade-wrap">
               @if (vm.isTradeCompactMode) {

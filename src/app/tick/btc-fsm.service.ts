@@ -87,7 +87,8 @@ export class BtcFsmService implements OnDestroy {
       ltp: this.lastLtp,
       threshold: this.fsm.threshold,
       lastBUYThreshold: this.fsm.lastBUYThreshold,
-      lastSELLThreshold: this.fsm.lastSELLThreshold
+      lastSELLThreshold: this.fsm.lastSELLThreshold,
+      lastBlockedAtMs: this.fsm.lastBlockedAtMs
     });
     this.fsmStateService.update(snapshot);
   }

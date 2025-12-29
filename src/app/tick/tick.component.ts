@@ -5,7 +5,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatTableModule } from '@angular/material/table';
 import { MatToolbarModule } from '@angular/material/toolbar';
-import { combineLatest, defer, from, map, merge, scan, shareReplay, startWith, withLatestFrom } from 'rxjs';
+import { combineLatest, defer, from, map, merge, scan, shareReplay, startWith, switchMap } from 'rxjs';
 import { BinancePayload, BinanceService } from '../binance/binance.service';
 import { FsmSymbolSnapshot, TickFsmStateService } from './tick-fsm-state.service';
 import { WebhookPayload, WebhookService } from '../webhook/webhook.service';
@@ -83,6 +83,7 @@ export class TickComponent {
   @Input() includeBinance = false;
   @Input() binanceSymbols: string[] | null = null;
   @Input() title = 'Latest 6 Instruments';
+  @Input() enableLogs = true;
   readonly displayedColumns = [
     'index',
     'symbol',
@@ -157,52 +158,47 @@ export class TickComponent {
   }
 
   private buildTickState() {
-    const initialState: TickState = {
-      ticks: [],
-      latestLtpByToken: new Map<number, number>(),
-      latestBinanceBySymbol: new Map<string, number>(),
-      fsmByToken: new Map<number, InstrumentFsm>(),
-      fsmBySymbol: new Map<string, InstrumentFsm>()
-    };
-
-    const tickEvents$ = this.tickService.ticks$.pipe(
-      map((tick) => ({ type: 'tick', tick, receivedAt: Date.now() }) as TickEvent)
-    );
-
-    const signalEvents$ = this.webhookService.webhook$.pipe(
-      withLatestFrom(this.instrumentLookup$),
-      map(([payload, lookup]) => {
-        const isBinanceSymbol = this.isBinanceSymbol(payload.symbol);
-        const token = isBinanceSymbol ? null : this.getTokenForSymbol(payload.symbol, lookup.symbolLookup);
-        console.log(
-          `[tick] webhook mapped symbol=${payload.symbol ?? '--'} token=${token ?? '--'} bySymbol=${isBinanceSymbol}`
+    return this.instrumentLookup$.pipe(
+      switchMap((lookup) => {
+        const initialState = this.buildInitialState(lookup);
+        const tickEvents$ = this.tickService.ticks$.pipe(
+          map((tick) => ({ type: 'tick', tick, receivedAt: Date.now() }) as TickEvent)
         );
-        return {
-          type: 'signal',
-          payload,
-          token,
-          receivedAt: Date.now()
-        } as TickEvent;
-      })
-    );
 
-    const binanceEvents$ = this.binanceService.binance$.pipe(
-      withLatestFrom(this.instrumentLookup$),
-      map(([payload, lookup]) => {
-        const isBinanceSymbol = this.isBinanceSymbol(payload.symbol);
-        return {
-          type: 'binance',
-          payload,
-          token: isBinanceSymbol ? null : this.getTokenForSymbol(payload.symbol, lookup.symbolLookup),
-          receivedAt: Date.now()
-        } as TickEvent;
-      })
-    );
+        const signalEvents$ = this.webhookService.webhook$.pipe(
+          map((payload) => {
+            const isBinanceSymbol = this.isBinanceSymbol(payload.symbol);
+            const token = isBinanceSymbol ? null : this.getTokenForSymbol(payload.symbol, lookup.symbolLookup);
+            this.log(
+              `[tick] webhook mapped symbol=${payload.symbol ?? '--'} token=${token ?? '--'} bySymbol=${isBinanceSymbol}`
+            );
+            return {
+              type: 'signal',
+              payload,
+              token,
+              receivedAt: Date.now()
+            } as TickEvent;
+          })
+        );
 
-    return merge(tickEvents$, signalEvents$, binanceEvents$).pipe(
-      scan((state, event) => this.reduceTickState(state, event), initialState),
-      startWith(initialState),
-      shareReplay({ bufferSize: 1, refCount: true })
+        const binanceEvents$ = this.binanceService.binance$.pipe(
+          map((payload) => {
+            const isBinanceSymbol = this.isBinanceSymbol(payload.symbol);
+            return {
+              type: 'binance',
+              payload,
+              token: isBinanceSymbol ? null : this.getTokenForSymbol(payload.symbol, lookup.symbolLookup),
+              receivedAt: Date.now()
+            } as TickEvent;
+          })
+        );
+
+        return merge(tickEvents$, signalEvents$, binanceEvents$).pipe(
+          scan((state, event) => this.reduceTickState(state, event), initialState),
+          startWith(initialState),
+          shareReplay({ bufferSize: 1, refCount: true })
+        );
+      })
     );
   }
 
@@ -315,6 +311,35 @@ export class TickComponent {
     if (!signal) {
       return current;
     }
+    if (this.isPositionState(current.state)) {
+      if (signal === 'BUY') {
+        const threshold = typeof payload.stoppx === 'number' ? payload.stoppx : current.threshold;
+        if (threshold !== current.threshold) {
+          this.log(
+            `[tick] in-position threshold update symbol=${payload.symbol ?? '--'} signal=BUY from=${current.threshold ?? '--'} to=${threshold ?? '--'}`
+          );
+        }
+        return {
+          ...current,
+          threshold,
+          savedBUYThreshold: threshold,
+          lastBUYThreshold: threshold,
+          lastSignalAtMs: receivedAt
+        };
+      }
+      const threshold = latestLtp ?? current.threshold;
+      if (threshold !== current.threshold) {
+        this.log(
+          `[tick] in-position threshold update symbol=${payload.symbol ?? '--'} signal=SELL from=${current.threshold ?? '--'} to=${threshold ?? '--'}`
+        );
+      }
+      return {
+        ...current,
+        threshold,
+        lastSELLThreshold: threshold,
+        lastSignalAtMs: receivedAt
+      };
+    }
     if (signal === 'BUY') {
       const threshold = typeof payload.stoppx === 'number' ? payload.stoppx : null;
       return {
@@ -339,6 +364,10 @@ export class TickComponent {
       lastCheckedAtMs: null,
       lastBlockedAtMs: null
     };
+  }
+
+  private isPositionState(state: InstrumentFsm['state']): boolean {
+    return state === 'BUYPOSITION' || state === 'SELLPOSITION';
   }
 
   private applyTickTransition(current: InstrumentFsm, ltp: number | null, receivedAt: number): TickTransitionResult {
@@ -468,7 +497,7 @@ export class TickComponent {
     if (prev.state === next.state && prev.threshold === next.threshold) {
       return;
     }
-    console.log(
+    this.log(
       `[tick] fsm transition source=${source} symbol=${symbol ?? '--'} prev=${prev.state} next=${next.state} threshold=${next.threshold ?? '--'} ltp=${ltp ?? '--'} at=${new Date(receivedAt).toISOString()}`
     );
   }
@@ -483,6 +512,42 @@ export class TickComponent {
       lastSignalAtMs: null,
       lastCheckedAtMs: null,
       lastBlockedAtMs: null
+    };
+  }
+
+  private buildInitialState(lookup: InstrumentLookup): TickState {
+    const snapshot = this.fsmStateService.getSnapshot();
+    const now = Date.now();
+    const fsmByToken = new Map<number, InstrumentFsm>();
+    for (const [token, symbols] of lookup.tokenSymbols.entries()) {
+      let snap: FsmSymbolSnapshot | undefined;
+      for (const symbol of symbols) {
+        const candidate = snapshot.get(symbol);
+        if (candidate) {
+          snap = candidate;
+          break;
+        }
+      }
+      if (!snap) {
+        continue;
+      }
+      fsmByToken.set(token, {
+        state: snap.state,
+        threshold: snap.threshold,
+        savedBUYThreshold: snap.lastBUYThreshold,
+        lastBUYThreshold: snap.lastBUYThreshold,
+        lastSELLThreshold: snap.lastSELLThreshold,
+        lastSignalAtMs: snap.state === 'NOSIGNAL' ? null : now,
+        lastCheckedAtMs: null,
+        lastBlockedAtMs: snap.state === 'NOPOSITION_BLOCKED' ? now : null
+      });
+    }
+    return {
+      ticks: [],
+      latestLtpByToken: new Map<number, number>(),
+      latestBinanceBySymbol: new Map<string, number>(),
+      fsmByToken,
+      fsmBySymbol: new Map<string, InstrumentFsm>()
     };
   }
 
@@ -567,7 +632,7 @@ export class TickComponent {
       const price = this.getBinancePriceForSymbol(symbol, priceBySymbol, snap?.ltp ?? null);
       if (!this.loggedMissingBtcThreshold && fsm.threshold === null) {
         this.loggedMissingBtcThreshold = true;
-        console.log(
+        this.log(
           `[btc-row] symbol=${symbol} price=${price ?? '--'} threshold=${fsm.threshold ?? '--'} state=${fsm.state}`
         );
       }
@@ -586,7 +651,7 @@ export class TickComponent {
     }
     this.lastZerodhaLogAt = now;
     const symbols = rows.map((row) => row.symbol ?? '--').join(', ');
-    console.log(`[zerodha6] rows=${rows.length} symbols=${symbols}`);
+    this.log(`[zerodha6] rows=${rows.length} symbols=${symbols}`);
   }
 
   private getBinanceSymbols(): string[] {
@@ -623,6 +688,13 @@ export class TickComponent {
     return snapshotLtp ?? null;
   }
 
+  private log(message: string): void {
+    if (!this.enableLogs) {
+      return;
+    }
+    console.log(message);
+  }
+
 
   private loadInstrumentMap() {
     return defer(() => from(this.fetchInstrumentMap())).pipe(
@@ -633,7 +705,8 @@ export class TickComponent {
   private buildFsmSnapshot(state: TickState, lookup: InstrumentLookup): Map<string, FsmSymbolSnapshot> {
     const snapshot = new Map<string, FsmSymbolSnapshot>();
     for (const [token, fsm] of state.fsmByToken.entries()) {
-      const symbols = lookup.tokenSymbols.get(token) ?? [];
+      const zerodhaSymbol = lookup.map.get(token) ?? null;
+      const symbols = zerodhaSymbol ? [zerodhaSymbol] : (lookup.tokenSymbols.get(token) ?? []);
       const ltp = state.latestLtpByToken.get(token) ?? null;
       for (const symbol of symbols) {
         snapshot.set(symbol, {
@@ -641,7 +714,8 @@ export class TickComponent {
           ltp,
           threshold: fsm.threshold,
           lastBUYThreshold: fsm.lastBUYThreshold,
-          lastSELLThreshold: fsm.lastSELLThreshold
+          lastSELLThreshold: fsm.lastSELLThreshold,
+          lastBlockedAtMs: fsm.lastBlockedAtMs
         });
       }
     }
@@ -652,7 +726,8 @@ export class TickComponent {
         ltp,
         threshold: fsm.threshold,
         lastBUYThreshold: fsm.lastBUYThreshold,
-        lastSELLThreshold: fsm.lastSELLThreshold
+        lastSELLThreshold: fsm.lastSELLThreshold,
+        lastBlockedAtMs: fsm.lastBlockedAtMs
       });
     }
     return snapshot;

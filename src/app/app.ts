@@ -1,6 +1,5 @@
 import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { BackgroundRunnerComponent } from './background-runner/background-runner.component';
 import { BtcFsmService } from './tick/btc-fsm.service';
 import { BtcLongFsmService } from './tick/btc-long-fsm.service';
 import { BtcShortFsmService } from './tick/btc-short-fsm.service';
@@ -8,7 +7,7 @@ import { RelayService } from './relay/relay.service';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, BackgroundRunnerComponent],
+  imports: [RouterOutlet],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })

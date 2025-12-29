@@ -80,6 +80,9 @@ export class WebhookStateService {
   private readonly lastLiveEntryMinuteBySymbol = new Map<string, number>();
   private readonly zerodhaSellCountAfterBuyBySymbol = new Map<string, number>();
   private readonly zerodhaPendingBuySellSellBySymbol = new Set<string>();
+  private readonly symbolMap$ = defer(() => from(this.fetchSymbolMap())).pipe(
+    shareReplay({ bufferSize: 1, refCount: false })
+  );
   private readonly allowedSymbolsByMode$ = defer(() => from(this.fetchAllowedSymbolsByMode())).pipe(
     shareReplay({ bufferSize: 1, refCount: false })
   );
@@ -95,15 +98,15 @@ export class WebhookStateService {
     }
 
     this.webhookService.webhook$.pipe(
-      withLatestFrom(this.fsmStateService.fsmBySymbol$, this.allowedSymbolsByMode$)
-    ).subscribe(([payload, snapshot, allowedByMode]) => {
+      withLatestFrom(this.fsmStateService.fsmBySymbol$, this.allowedSymbolsByMode$, this.symbolMap$)
+    ).subscribe(([payload, snapshot, allowedByMode, symbolMap]) => {
       for (const mode of modes) {
         const allowed = allowedByMode.get(mode) ?? null;
         const subject = this.signalStateByMode.get(mode);
         if (!subject) {
           continue;
         }
-        const next = this.reduceSignalState(subject.value, payload, snapshot, allowed, mode);
+        const next = this.reduceSignalState(subject.value, payload, snapshot, allowed, mode, symbolMap);
         if (next !== subject.value) {
           if (this.debugStateUpdates) {
             const rows = next.bySymbol.get(next.symbols[0] ?? '')?.length ?? 0;
@@ -141,6 +144,10 @@ export class WebhookStateService {
 
   getTradeState$() {
     return this.tradeState$.asObservable();
+  }
+
+  getLiveTradeBlockedUntil(symbol: string): number | null {
+    return this.liveTradeBlockedUntilBySymbol.get(symbol) ?? null;
   }
 
   clearSignals(mode: FilterMode): void {
@@ -211,7 +218,8 @@ export class WebhookStateService {
         }
       }
 
-      if (isEntering) {
+      let openedPaperThisPass = false;
+      if (isEntering && !openBySymbol.has(symbol)) {
         const entryPrice = ltp;
         const lot = lotLookup.get(symbol) ?? 1;
         const quantity = Math.ceil(100000 / (lot * ltp));
@@ -219,6 +227,10 @@ export class WebhookStateService {
         const id = `${symbol}-${Date.now()}`;
         const openTrade: OpenTrade = { id, symbol, entryPrice, quantity, lot, timeIst };
         openBySymbol.set(symbol, openTrade);
+        openedPaperThisPass = true;
+        console.log(
+          `[paper-trade] open symbol=${symbol} entry=${entryPrice.toFixed(2)} qty=${quantity} lot=${lot}`
+        );
         const row: TradeRow = {
           id,
           timeIst,
@@ -231,7 +243,6 @@ export class WebhookStateService {
         };
         const existing = tradesBySymbol.get(symbol) ?? [];
         tradesBySymbol.set(symbol, [row, ...existing]);
-        continue;
       }
 
       const openTrade = openBySymbol.get(symbol);
@@ -268,7 +279,17 @@ export class WebhookStateService {
           if (shouldEnterNow && this.shouldEnterOncePerMinute(symbol, now)) {
             const liveTrade = this.createLiveOpenTrade(symbol, openTrade, ltp, now);
             liveOpenBySymbol.set(symbol, liveTrade);
-            this.appendLiveEntryRow(liveTradesBySymbol, liveTrade, ltp, cumulative);
+            this.appendLiveEntryRow(liveTradesBySymbol, liveTrade, ltp, cumulative, openedPaperThisPass);
+          }
+        } else {
+          const now = new Date();
+          if (isEntering || this.isMinuteBoundary(now)) {
+            const blockedUntil = this.liveTradeBlockedUntilBySymbol.get(symbol) ?? 0;
+            const combined = paperUnrealized + cumulative;
+            const reason = blockedUntil > now.getTime()
+              ? `blocked until ${this.formatIstTime(new Date(blockedUntil))}`
+              : `combined=${combined.toFixed(2)}`;
+            console.log(`[live-trade] skip symbol=${symbol} ${reason}`);
           }
         }
       }
@@ -282,6 +303,9 @@ export class WebhookStateService {
           unrealizedPnl: 0,
           cumulativePnl: cumulative
         });
+        console.log(
+          `[paper-trade] close symbol=${symbol} pnl=${realized.toFixed(2)} cumulative=${cumulative.toFixed(2)}`
+        );
         const exitRow: TradeRow = {
           id: `${openTrade.id}-exit`,
           timeIst: this.formatIstTime(new Date()),
@@ -345,7 +369,8 @@ export class WebhookStateService {
     if (now < blockedUntil) {
       return false;
     }
-    return cumulativePnl === 0 || (unrealizedPnl + cumulativePnl) > 0;
+    const combined = unrealizedPnl + cumulativePnl;
+    return combined === 0 || combined > 0;
   }
 
   private closeLiveTradeOnly(
@@ -399,7 +424,8 @@ export class WebhookStateService {
     liveTradesBySymbol: Map<string, TradeRow[]>,
     liveTrade: OpenTrade,
     ltp: number,
-    cumulativePnl: number
+    cumulativePnl: number,
+    openedWithPaper: boolean
   ): void {
     const row: TradeRow = {
       id: liveTrade.id,
@@ -415,7 +441,7 @@ export class WebhookStateService {
     liveTradesBySymbol.set(liveTrade.symbol, [row, ...existing]);
     this.lastLiveTradeIdBySymbol.set(liveTrade.symbol, liveTrade.id);
     console.log(
-      `[live-trade] open symbol=${liveTrade.symbol} id=${liveTrade.id} entry=${row.entryPrice ?? '--'} qty=${row.quantity ?? '--'} lot=${liveTrade.lot}`
+      `[live-trade] open symbol=${liveTrade.symbol} id=${liveTrade.id} entry=${row.entryPrice ?? '--'} qty=${row.quantity ?? '--'} lot=${liveTrade.lot}${openedWithPaper ? ' (same-pass paper)' : ''}`
     );
   }
 
@@ -458,14 +484,39 @@ export class WebhookStateService {
     }
   }
 
+  private async fetchSymbolMap(): Promise<Map<string, string>> {
+    try {
+      const response = await fetch('/instruments.json', { cache: 'no-store' });
+      if (!response.ok) {
+        return new Map<string, string>();
+      }
+      const parsed = await response.json();
+      const meta = Array.isArray(parsed) ? (parsed as InstrumentMeta[]) : [];
+      const map = new Map<string, string>();
+      for (const instrument of meta) {
+        if (typeof instrument.zerodha === 'string') {
+          map.set(instrument.zerodha, instrument.zerodha);
+          if (typeof instrument.tradingview === 'string') {
+            map.set(instrument.tradingview, instrument.zerodha);
+          }
+        }
+      }
+      return map;
+    } catch {
+      return new Map<string, string>();
+    }
+  }
+
   private reduceSignalState(
     state: SignalState,
     payload: WebhookPayload,
     snapshot: Map<string, FsmSymbolSnapshot>,
     allowedSymbols: Set<string> | null,
-    mode: FilterMode
+    mode: FilterMode,
+    symbolMap: Map<string, string>
   ): SignalState {
-    const symbol = typeof payload.symbol === 'string' ? payload.symbol : '';
+    const rawSymbol = typeof payload.symbol === 'string' ? payload.symbol : '';
+    const symbol = this.mapSymbolForMode(rawSymbol, mode, symbolMap);
     if (!symbol) {
       return state;
     }
@@ -477,7 +528,7 @@ export class WebhookStateService {
     if (!this.isSignalAllowed(mode, signal)) {
       return state;
     }
-    const symbolKey = this.mapSymbolForMode(symbol, mode);
+    const symbolKey = symbol;
     const tracking = state.fsmBySymbol.get(symbolKey) ?? this.defaultTracking();
     const nextTracking = this.isBtcMode(mode)
       ? {
@@ -668,7 +719,10 @@ export class WebhookStateService {
     return state === 'BUYPOSITION' || state === 'SELLPOSITION';
   }
 
-  private mapSymbolForMode(symbol: string, mode: FilterMode): string {
+  private mapSymbolForMode(symbol: string, mode: FilterMode, symbolMap: Map<string, string>): string {
+    if (mode === 'zerodha6') {
+      return symbolMap.get(symbol) ?? symbol;
+    }
     const upper = symbol.toUpperCase();
     if (mode === 'btc-long' && (upper === 'BTCUSDT' || upper === 'BTCUSD')) {
       return 'BTCUSDT_LONG';
@@ -764,8 +818,7 @@ export class WebhookStateService {
         }
         if (typeof instrument.zerodha === 'string') {
           symbols.add(instrument.zerodha);
-        }
-        if (typeof instrument.tradingview === 'string') {
+        } else if (typeof instrument.tradingview === 'string') {
           symbols.add(instrument.tradingview);
         }
         count += 1;
