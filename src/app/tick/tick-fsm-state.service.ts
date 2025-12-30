@@ -55,6 +55,20 @@ export class TickFsmStateService {
     return this.subject.value;
   }
 
+  clearSymbols(symbols: string[]): void {
+    if (symbols.length === 0) {
+      return;
+    }
+    const next = new Map(this.subject.value);
+    for (const symbol of symbols) {
+      next.delete(symbol);
+      this.lastPriceBySymbol.delete(symbol);
+      this.lastThresholdBySymbol.delete(symbol);
+      this.lastLogAtBySymbol.delete(symbol);
+    }
+    this.subject.next(next);
+  }
+
   private shouldLogUpdate(
     symbol: string,
     prev: FsmSymbolSnapshot,

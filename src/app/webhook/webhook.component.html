@@ -2,7 +2,7 @@
   <mat-toolbar color="primary" class="webhook-toolbar">
     <span>TradingView Webhooks</span>
     <span class="spacer"></span>
-    <span class="toolbar-subhead">Listening on http://localhost:3001</span>
+    <span class="toolbar-subhead">Listening on http://localhost:3002</span>
     <button mat-stroked-button type="button" (click)="clearSignals()">Clear signals</button>
   </mat-toolbar>
 
@@ -203,6 +203,11 @@
             <div class="table-wrap trade-wrap">
               @if (vm.isTradeCompactMode) {
                 <table mat-table [dataSource]="vm.liveRowsBtc" class="mat-elevation-z0">
+                  <ng-container matColumnDef="sNo">
+                    <th mat-header-cell *matHeaderCellDef>S.NO</th>
+                    <td mat-cell *matCellDef="let row; let i = index">{{ i + 1 }}</td>
+                  </ng-container>
+
                   <ng-container matColumnDef="openTime">
                     <th mat-header-cell *matHeaderCellDef>Open Time</th>
                     <td mat-cell *matCellDef="let row">{{ row.openTime ?? '--' }}</td>
@@ -225,7 +230,7 @@
 
                   <ng-container matColumnDef="unrealizedPnl">
                     <th mat-header-cell *matHeaderCellDef>Unrealized PnL</th>
-                    <td mat-cell *matCellDef="let row">{{ formatPrice(row.unrealizedPnl) }}</td>
+                    <td mat-cell *matCellDef="let row">{{ formatLiveUnrealized(row) }}</td>
                   </ng-container>
 
                   <ng-container matColumnDef="cumulativePnl">
@@ -233,11 +238,16 @@
                     <td mat-cell *matCellDef="let row">{{ formatPrice(row.cumulativePnl) }}</td>
                   </ng-container>
 
-                  <tr mat-header-row *matHeaderRowDef="shortLiveColumns"></tr>
-                  <tr mat-row *matRowDef="let row; columns: shortLiveColumns;"></tr>
+                  <tr mat-header-row *matHeaderRowDef="liveShortColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: liveShortColumns;"></tr>
                 </table>
               } @else {
                 <table mat-table [dataSource]="vm.liveRows" class="mat-elevation-z0">
+                <ng-container matColumnDef="sNo">
+                  <th mat-header-cell *matHeaderCellDef>S.NO</th>
+                  <td mat-cell *matCellDef="let row; let i = index">{{ i + 1 }}</td>
+                </ng-container>
+
                 <ng-container matColumnDef="timeIst">
                   <th mat-header-cell *matHeaderCellDef>Time (IST)</th>
                   <td mat-cell *matCellDef="let row">{{ row.timeIst }}</td>
@@ -260,7 +270,7 @@
 
                 <ng-container matColumnDef="unrealizedPnl">
                   <th mat-header-cell *matHeaderCellDef>Unrealized PnL</th>
-                  <td mat-cell *matCellDef="let row">{{ formatPrice(row.unrealizedPnl) }}</td>
+                  <td mat-cell *matCellDef="let row">{{ formatLiveUnrealized(row) }}</td>
                 </ng-container>
 
                 <ng-container matColumnDef="cumulativePnl">
@@ -272,8 +282,8 @@
                   <th mat-header-cell *matHeaderCellDef>Quantity</th>
                   <td mat-cell *matCellDef="let row">{{ row.quantity ?? '--' }}</td>
                 </ng-container>
-                <tr mat-header-row *matHeaderRowDef="tradeColumns"></tr>
-                <tr mat-row *matRowDef="let row; columns: tradeColumns;"></tr>
+                <tr mat-header-row *matHeaderRowDef="liveTradeColumns"></tr>
+                <tr mat-row *matRowDef="let row; columns: liveTradeColumns;"></tr>
                 </table>
               }
             </div>

@@ -14,7 +14,11 @@
     </div>
     <div class="field">
       <label for="relay-port">Port</label>
-      <input id="relay-port" type="text" [(ngModel)]="port" (blur)="saveSettings()" placeholder="3001" />
+      <input id="relay-port" type="text" [(ngModel)]="port" (blur)="saveSettings()" placeholder="3002" />
+    </div>
+    <div class="field">
+      <label for="relay-capital">Capital</label>
+      <input id="relay-capital" type="number" min="1" step="1" [(ngModel)]="capital" (blur)="saveSettings()" placeholder="100000" />
     </div>
     <div class="field toggle">
       <label>

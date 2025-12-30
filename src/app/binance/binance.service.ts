@@ -16,7 +16,7 @@ export class BinanceService implements OnDestroy {
   readonly binance$: Observable<BinancePayload>;
 
   constructor() {
-    this.socket = io('http://localhost:3001');
+    this.socket = io('http://localhost:3002');
 
     this.socket.on('connect', () => {
       console.log('[binance] socket connected', this.socket.id);

@@ -9,10 +9,10 @@
       <span class="toolbar-subtitle">Delta Exchange BTCUSD (REST)</span>
     </div>
     <span class="spacer"></span>
-    <span class="toolbar-subhead">Listening on http://localhost:3001</span>
+    <span class="toolbar-subhead">Listening on http://localhost:3002</span>
   </mat-toolbar>
 
-  <app-tick [includeBinance]="true" title="Latest BTCUSDT" />
+  <app-tick [includeBinance]="true" title="Latest BTCUSDT" [enableProcessing]="false" />
   <app-webhook filterMode="btc" />
 
   <div class="binance-grid">

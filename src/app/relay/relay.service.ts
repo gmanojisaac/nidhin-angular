@@ -15,7 +15,8 @@ export class RelayService implements OnDestroy {
   private readonly subscription = new Subscription();
 
   ipAddress = this.loadSetting('relay.ip');
-  port = this.loadSetting('relay.port', '3001');
+  port = this.loadSetting('relay.port', '3002');
+  capital = this.loadSetting('relay.capital', '100000');
   enabled = this.loadSetting('relay.enabled') === 'true';
   attempts: RelayAttempt[] = [];
 
@@ -42,7 +43,16 @@ export class RelayService implements OnDestroy {
   saveSettings(): void {
     this.persistSetting('relay.ip', this.ipAddress);
     this.persistSetting('relay.port', this.port);
+    this.persistSetting('relay.capital', this.capital);
     this.persistSetting('relay.enabled', String(this.enabled));
+  }
+
+  getCapitalValue(): number {
+    const parsed = Number(this.capital);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return 100000;
+    }
+    return parsed;
   }
 
   relayNow(): void {
@@ -63,7 +73,7 @@ export class RelayService implements OnDestroy {
     if (!ip) {
       return null;
     }
-    const port = this.port.trim() || '3001';
+    const port = this.port.trim() || '3002';
     if (ip.startsWith('http://') || ip.startsWith('https://')) {
       return `${ip.replace(/\/+$/, '')}/webhook`;
     }

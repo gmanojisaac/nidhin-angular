@@ -16,7 +16,7 @@ export class DeltaRestService implements OnDestroy {
   readonly deltaRest$: Observable<DeltaRestPayload>;
 
   constructor() {
-    this.socket = io('http://localhost:3001');
+    this.socket = io('http://localhost:3002');
 
     this.deltaRest$ = new Observable<DeltaRestPayload>((subscriber) => {
       const handler = (payload: DeltaRestPayload) => subscriber.next(payload);

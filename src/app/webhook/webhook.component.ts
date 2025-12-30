@@ -49,10 +49,12 @@ export class WebhookComponent {
   private currentMode: FilterMode = 'none';
   private readonly filterMode$ = new BehaviorSubject<FilterMode>('none');
   private loggedOnce = false;
+  private lastActiveSymbol: string | null = null;
   @Input() set filterMode(value: FilterMode) {
     const mode = value ?? 'none';
     this.currentMode = mode;
     this.filterMode$.next(mode);
+    console.log(`[webhook] mode set=${mode}`);
   }
 
   selectedSymbol = '';
@@ -74,6 +76,25 @@ export class WebhookComponent {
     'quantity'
   ];
   readonly shortLiveColumns = [
+    'openTime',
+    'openPrice',
+    'closeTime',
+    'closePrice',
+    'unrealizedPnl',
+    'cumulativePnl'
+  ];
+  readonly liveTradeColumns = [
+    'sNo',
+    'timeIst',
+    'symbol',
+    'entryPrice',
+    'currentPrice',
+    'unrealizedPnl',
+    'cumulativePnl',
+    'quantity'
+  ];
+  readonly liveShortColumns = [
+    'sNo',
     'openTime',
     'openPrice',
     'closeTime',
@@ -129,9 +150,16 @@ export class WebhookComponent {
     }),
     tap((vm) => {
       if (this.loggedOnce) {
+        if (vm.activeSymbol !== this.lastActiveSymbol) {
+          this.lastActiveSymbol = vm.activeSymbol;
+          console.log(
+            `[webhook] active symbol changed mode=${this.currentMode} symbol=${vm.activeSymbol ?? '--'} rows=${vm.rows.length}`
+          );
+        }
         return;
       }
       this.loggedOnce = true;
+      this.lastActiveSymbol = vm.activeSymbol ?? null;
       console.log(
         `[webhook] view model symbols=${vm.symbols.length} active=${vm.activeSymbol ?? '--'} rows=${vm.rows.length} paper=${vm.paperRows.length} live=${vm.liveRows.length}`
       );
@@ -155,6 +183,26 @@ export class WebhookComponent {
       return '--';
     }
     return value.toFixed(2);
+  }
+
+  formatLiveUnrealized(row: TradeRow | BtcLiveRow): string {
+    const base = row.unrealizedPnl ?? null;
+    if (base === null || Number.isNaN(base)) {
+      return '--';
+    }
+    const adjusted = this.isOpenTrade(row) ? base - 50 : base;
+    return adjusted.toFixed(2);
+  }
+
+
+  private isOpenTrade(row: TradeRow | BtcLiveRow): boolean {
+    if ('closeTime' in row) {
+      return !row.closeTime || row.closeTime === '--';
+    }
+    if (typeof row.id === 'string') {
+      return !row.id.endsWith('-exit');
+    }
+    return true;
   }
 
   isBtcMode(): boolean {

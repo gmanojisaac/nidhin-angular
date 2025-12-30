@@ -1,0 +1,58 @@
+.history-page {
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+}
+
+.history-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.history-header h1 {
+  margin: 0;
+}
+
+.history-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid rgba(31, 42, 68, 0.08);
+}
+
+.history-card h2 {
+  margin: 0 0 12px;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.controls label {
+  font-weight: 600;
+}
+
+.controls select {
+  padding: 6px 10px;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.history-table th,
+.history-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(31, 42, 68, 0.08);
+}
+
+.empty {
+  margin: 12px 0 0;
+  opacity: 0.7;
+}

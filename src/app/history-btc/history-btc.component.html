@@ -1,0 +1,154 @@
+<section class="history-page">
+  <header class="history-header">
+    <a class="back-link" routerLink="/btc-combined">Back to BTC Combined</a>
+    <div>
+      <h1>BTC History</h1>
+      @if (snapshot) {
+        <p>Snapshot date: {{ snapshot.dateKey }}</p>
+      } @else {
+        <p>No history snapshot saved yet.</p>
+      }
+    </div>
+  </header>
+
+  @if (snapshot) {
+    <div class="history-card">
+      <div class="controls">
+        <label for="history-symbol">Instrument Symbol</label>
+        <select id="history-symbol" [(ngModel)]="selectedSymbol">
+          @for (symbol of symbols; track symbol) {
+            <option [value]="symbol">{{ symbol }}</option>
+          }
+        </select>
+      </div>
+    </div>
+
+    <div class="history-card">
+      <h2>Signals</h2>
+      @if (signals.length > 0) {
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Time (IST)</th>
+              <th>Intent</th>
+              <th>Stop Px</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of signals; track row.timeIst) {
+              <tr>
+                <td>{{ row.timeIst }}</td>
+                <td>{{ row.intent ?? '--' }}</td>
+                <td>{{ formatStopPx(row.stoppx) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      } @else {
+        <p class="empty">No signals saved for this symbol.</p>
+      }
+    </div>
+
+    <div class="history-card">
+      <h2>Paper Trades</h2>
+      @if (paperRowsBtc.length > 0) {
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Open Time</th>
+              <th>Open Price</th>
+              <th>Close Time</th>
+              <th>Close Price</th>
+              <th>Unrealized PnL</th>
+              <th>Cumulative PnL</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of paperRowsBtc; track row.id) {
+              <tr>
+                <td>{{ row.openTime }}</td>
+                <td>{{ formatPrice(row.openPrice ?? null) }}</td>
+                <td>{{ row.closeTime }}</td>
+                <td>{{ formatPrice(row.closePrice ?? null) }}</td>
+                <td>{{ formatPrice(row.unrealizedPnl) }}</td>
+                <td>{{ formatPrice(row.cumulativePnl) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      } @else {
+        <p class="empty">No paper trades saved for this symbol.</p>
+      }
+    </div>
+
+    <div class="history-card">
+      <h2>Live Trades</h2>
+      @if (liveRowsBtc.length > 0) {
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>S.NO</th>
+              <th>Open Time</th>
+              <th>Open Price</th>
+              <th>Close Time</th>
+              <th>Close Price</th>
+              <th>Unrealized PnL</th>
+              <th>Cumulative PnL</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of liveRowsBtc; track row.id; let i = $index) {
+              <tr>
+                <td>{{ i + 1 }}</td>
+                <td>{{ row.openTime }}</td>
+                <td>{{ formatPrice(row.openPrice ?? null) }}</td>
+                <td>{{ row.closeTime }}</td>
+                <td>{{ formatPrice(row.closePrice ?? null) }}</td>
+                <td>{{ formatLiveUnrealized(row) }}</td>
+                <td>{{ formatPrice(row.cumulativePnl) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      } @else {
+        <p class="empty">No live trades saved for this symbol.</p>
+      }
+    </div>
+
+    <div class="history-card">
+      <h2>Ticks Dashboard</h2>
+      @if (snapshot.ticks.length > 0) {
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>LTP</th>
+              <th>Threshold</th>
+              <th>Qty</th>
+              <th>No Signal</th>
+              <th>No Position Signal</th>
+              <th>Position</th>
+              <th>Blocked</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of snapshot.ticks; track row.symbol) {
+              <tr>
+                <td>{{ row.symbol }}</td>
+                <td>{{ formatPrice(row.ltp) }}</td>
+                <td>{{ formatPrice(row.threshold) }}</td>
+                <td>{{ row.quantity ?? '--' }}</td>
+                <td>{{ row.noSignal }}</td>
+                <td>{{ row.noPositionSignal }}</td>
+                <td>{{ row.buyPosition }}</td>
+                <td>{{ row.noPositionBlocked }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      } @else {
+        <p class="empty">No tick snapshot saved.</p>
+      }
+    </div>
+  }
+</section>

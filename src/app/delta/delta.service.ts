@@ -16,7 +16,7 @@ export class DeltaService implements OnDestroy {
   readonly delta$: Observable<DeltaPayload>;
 
   constructor() {
-    this.socket = io('http://localhost:3001');
+    this.socket = io('http://localhost:3002');
 
     this.socket.on('connect', () => {
     });

@@ -14,7 +14,7 @@ export class TickService implements OnDestroy {
   readonly firstTick$: Observable<Tick>;
 
   constructor() {
-    this.socket = io('http://localhost:3001');
+    this.socket = io('http://localhost:3002');
 
     this.socket.on('connect', () => {
       console.log('[tick] socket connected', this.socket.id);

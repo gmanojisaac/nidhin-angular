@@ -40,6 +40,9 @@ export class BtcLongComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     console.log('[btc-long] component init');
     console.log(`[btc-long] enter url=${this.router.url}`);
+    console.log(
+      `[btc-long] inputs showHeader=${this.showHeader} showBinanceCard=${this.showBinanceCard} showDeltaPanels=${this.showDeltaPanels}`
+    );
     this.navSub = this.router.events.pipe(
       filter((event) => event instanceof NavigationEnd)
     ).subscribe((event) => {

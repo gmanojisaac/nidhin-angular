@@ -11,10 +11,10 @@
       <span class="toolbar-subtitle">Delta Exchange BTCUSD Long (REST)</span>
     </div>
     <span class="spacer"></span>
-    <span class="toolbar-subhead">Listening on http://localhost:3001</span>
+    <span class="toolbar-subhead">Listening on http://localhost:3002</span>
   </mat-toolbar>
 
-  <app-tick [includeBinance]="true" [binanceSymbols]="['BTCUSDT_LONG']" title="Latest BTCUSDT Long" />
+  <app-tick [includeBinance]="true" [binanceSymbols]="['BTCUSDT_LONG']" title="Latest BTCUSDT Long" [enableProcessing]="false" />
   <app-webhook filterMode="btc-long" />
 
   @if (showBinanceCard) {

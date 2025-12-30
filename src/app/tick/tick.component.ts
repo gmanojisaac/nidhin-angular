@@ -5,9 +5,10 @@ import { MatCardModule } from '@angular/material/card';
 import { MatChipsModule } from '@angular/material/chips';
 import { MatTableModule } from '@angular/material/table';
 import { MatToolbarModule } from '@angular/material/toolbar';
-import { combineLatest, defer, from, map, merge, scan, shareReplay, startWith, switchMap } from 'rxjs';
+import { BehaviorSubject, combineLatest, defer, from, map, merge, scan, shareReplay, startWith, switchMap } from 'rxjs';
 import { BinancePayload, BinanceService } from '../binance/binance.service';
 import { FsmSymbolSnapshot, TickFsmStateService } from './tick-fsm-state.service';
+import { RelayService } from '../relay/relay.service';
 import { WebhookPayload, WebhookService } from '../webhook/webhook.service';
 import { Tick, TickService } from './tick.service';
 
@@ -15,6 +16,7 @@ type InstrumentMeta = {
   tradingview?: string;
   zerodha: string;
   token: number;
+  lot?: number;
 };
 
 type InstrumentLookup = {
@@ -22,6 +24,7 @@ type InstrumentLookup = {
   order: Map<number, number>;
   symbolLookup: Map<string, number>;
   tokenSymbols: Map<number, string[]>;
+  lotBySymbol: Map<string, number>;
 };
 
 type FsmState = 'NOSIGNAL' | 'NOPOSITION_SIGNAL' | 'BUYPOSITION' | 'SELLPOSITION' | 'NOPOSITION_BLOCKED';
@@ -49,6 +52,7 @@ type TickRow = {
   symbol: string | null;
   ltp: number | null;
   threshold: number | null;
+  quantity: number | null;
   noSignal: boolean;
   noPositionSignal: boolean;
   buyPosition: boolean;
@@ -77,17 +81,23 @@ export class TickComponent {
   private readonly binanceService = inject(BinanceService);
   private readonly webhookService = inject(WebhookService);
   private readonly fsmStateService = inject(TickFsmStateService);
+  private readonly relayService = inject(RelayService);
   private loggedMissingBtcThreshold = false;
   private lastZerodhaLogAt = 0;
+  private readonly lastStuckLogAtBySymbol = new Map<string, number>();
   private readonly instrumentLookup$ = this.loadInstrumentMap();
   @Input() includeBinance = false;
   @Input() binanceSymbols: string[] | null = null;
   @Input() title = 'Latest 6 Instruments';
   @Input() enableLogs = true;
+  @Input() set enableProcessing(value: boolean) {
+    this.enableProcessing$.next(value !== false);
+  }
   readonly displayedColumns = [
     'index',
     'symbol',
     'ltp',
+    'quantity',
     'threshold',
     'noSignal',
     'noPositionSignal',
@@ -95,55 +105,10 @@ export class TickComponent {
     'noPositionBlocked'
   ];
 
-  private readonly tickState$ = this.buildTickState();
+  private readonly enableProcessing$ = new BehaviorSubject<boolean>(true);
 
-  readonly latestTicks$ = combineLatest([
-    this.tickState$,
-    this.instrumentLookup$
-  ]).pipe(
-    map(([state, instrumentLookup]) => {
-      const orderedTicks = [...state.ticks].sort((left, right) => {
-        const leftToken = this.getInstrumentToken(left);
-        const rightToken = this.getInstrumentToken(right);
-        const leftIndex = leftToken === null
-          ? Number.POSITIVE_INFINITY
-          : instrumentLookup.order.get(leftToken) ?? Number.POSITIVE_INFINITY;
-        const rightIndex = rightToken === null
-          ? Number.POSITIVE_INFINITY
-          : instrumentLookup.order.get(rightToken) ?? Number.POSITIVE_INFINITY;
-        return leftIndex - rightIndex;
-      });
-      const tickRows = orderedTicks.map((tick) => {
-        const token = this.getInstrumentToken(tick);
-        const fsm = token === null ? null : state.fsmByToken.get(token) ?? this.defaultFsm();
-        return this.toRow(tick, instrumentLookup.map, fsm);
-      });
-      const snapshot = this.buildFsmSnapshot(state, instrumentLookup);
-      const rows = this.includeBinance
-        ? this.buildBinanceRows(state, snapshot)
-        : tickRows.slice(0, 6);
-      return { rows, snapshot };
-    })
-  ).pipe(
-    map(({ rows, snapshot }) => {
-      const current = this.fsmStateService.getSnapshot();
-      let nextSnapshot = snapshot.size === 0 && current.size > 0 ? current : snapshot;
-      if (this.includeBinance) {
-        const symbols = this.getBinanceSymbols();
-        for (const symbol of symbols) {
-          if (current.has(symbol) && !nextSnapshot.has(symbol)) {
-            nextSnapshot = new Map(nextSnapshot);
-            const existing = current.get(symbol);
-            if (existing) {
-              nextSnapshot.set(symbol, existing);
-            }
-          }
-        }
-      }
-      this.fsmStateService.update(nextSnapshot);
-      this.logZerodhaRows(rows);
-      return rows;
-    })
+  readonly latestTicks$ = this.enableProcessing$.pipe(
+    switchMap((enabled) => enabled ? this.buildProcessedTicks$() : this.buildViewOnlyTicks$())
   );
 
   formatNumber(value: number | null): string {
@@ -202,6 +167,107 @@ export class TickComponent {
     );
   }
 
+  private buildProcessedTicks$() {
+    return combineLatest([
+      this.buildTickState(),
+      this.instrumentLookup$
+    ]).pipe(
+      map(([state, instrumentLookup]) => {
+        const orderedTicks = [...state.ticks].sort((left, right) => {
+          const leftToken = this.getInstrumentToken(left);
+          const rightToken = this.getInstrumentToken(right);
+          const leftIndex = leftToken === null
+            ? Number.POSITIVE_INFINITY
+            : instrumentLookup.order.get(leftToken) ?? Number.POSITIVE_INFINITY;
+          const rightIndex = rightToken === null
+            ? Number.POSITIVE_INFINITY
+            : instrumentLookup.order.get(rightToken) ?? Number.POSITIVE_INFINITY;
+          return leftIndex - rightIndex;
+        });
+        const tickRows = orderedTicks.map((tick) => {
+          const token = this.getInstrumentToken(tick);
+          const fsm = token === null ? null : state.fsmByToken.get(token) ?? this.defaultFsm();
+          return this.toRow(tick, instrumentLookup.map, fsm, instrumentLookup.lotBySymbol);
+        });
+        const snapshot = this.buildFsmSnapshot(state, instrumentLookup);
+        const rows = this.includeBinance
+          ? this.buildBinanceRows(state, snapshot, instrumentLookup.lotBySymbol)
+          : tickRows.slice(0, 6);
+        return { rows, snapshot };
+      }),
+      map(({ rows, snapshot }) => {
+        const current = this.fsmStateService.getSnapshot();
+        let nextSnapshot = snapshot.size === 0 && current.size > 0 ? current : snapshot;
+        if (this.includeBinance) {
+          const symbols = this.getBinanceSymbols();
+          for (const symbol of symbols) {
+            if (current.has(symbol) && !nextSnapshot.has(symbol)) {
+              nextSnapshot = new Map(nextSnapshot);
+              const existing = current.get(symbol);
+              if (existing) {
+                nextSnapshot.set(symbol, existing);
+              }
+            }
+          }
+        }
+        this.fsmStateService.update(nextSnapshot);
+        this.logZerodhaRows(rows);
+        return rows;
+      })
+    );
+  }
+
+  private buildViewOnlyTicks$() {
+    const tickList$ = this.tickService.ticks$.pipe(
+      scan((ticks, tick) => this.updateTicks(ticks, tick, this.getInstrumentToken(tick)), [] as Tick[]),
+      startWith([] as Tick[])
+    );
+    return combineLatest([tickList$, this.instrumentLookup$, this.fsmStateService.fsmBySymbol$]).pipe(
+      map(([ticks, instrumentLookup, snapshot]) => {
+        const orderedTicks = [...ticks].sort((left, right) => {
+          const leftToken = this.getInstrumentToken(left);
+          const rightToken = this.getInstrumentToken(right);
+          const leftIndex = leftToken === null
+            ? Number.POSITIVE_INFINITY
+            : instrumentLookup.order.get(leftToken) ?? Number.POSITIVE_INFINITY;
+          const rightIndex = rightToken === null
+            ? Number.POSITIVE_INFINITY
+            : instrumentLookup.order.get(rightToken) ?? Number.POSITIVE_INFINITY;
+          return leftIndex - rightIndex;
+        });
+        const rows = orderedTicks.map((tick) => {
+          const token = this.getInstrumentToken(tick);
+          const symbol = token === null ? null : instrumentLookup.map.get(token) ?? null;
+          const snap = symbol ? snapshot.get(symbol) : null;
+          const fsm = snap
+            ? {
+              ...this.defaultFsm(),
+              state: snap.state,
+              threshold: snap.threshold,
+              lastBUYThreshold: snap.lastBUYThreshold,
+              lastSELLThreshold: snap.lastSELLThreshold,
+              lastBlockedAtMs: snap.lastBlockedAtMs
+            }
+            : this.defaultFsm();
+          return this.toStateRow(symbol, this.getTickLtp(tick), fsm, instrumentLookup.lotBySymbol);
+        });
+        if (this.includeBinance) {
+          const binanceState: TickState = {
+            ticks: [],
+            latestLtpByToken: new Map<number, number>(),
+            latestBinanceBySymbol: new Map<string, number>(),
+            fsmByToken: new Map<number, InstrumentFsm>(),
+            fsmBySymbol: new Map<string, InstrumentFsm>()
+          };
+          return this.buildBinanceRows(binanceState, snapshot, instrumentLookup.lotBySymbol);
+        }
+        const limited = rows.slice(0, 6);
+        this.logZerodhaRows(limited);
+        return limited;
+      })
+    );
+  }
+
   private reduceTickState(state: TickState, event: TickEvent): TickState {
     if (event.type === 'tick') {
       const token = this.getInstrumentToken(event.tick);
@@ -240,9 +306,13 @@ export class TickComponent {
       const fsmByToken = new Map(state.fsmByToken);
       const token = event.token;
       if (token === null) {
+        this.logStuck('signal', event.payload.symbol ?? '--', this.defaultFsm(), null, event.receivedAt, 'missing token');
         return state;
       }
       const existing = fsmByToken.get(token) ?? this.defaultFsm();
+      if (existing.state === 'NOPOSITION_SIGNAL' && (state.latestLtpByToken.get(token) ?? null) === null) {
+        this.logStuck('signal', event.payload.symbol ?? '--', existing, null, event.receivedAt, 'missing ltp');
+      }
       const next = this.applySignalTransition(
         existing,
         signal,
@@ -372,6 +442,9 @@ export class TickComponent {
 
   private applyTickTransition(current: InstrumentFsm, ltp: number | null, receivedAt: number): TickTransitionResult {
     if (current.threshold === null || current.lastSignalAtMs === null || ltp === null) {
+      if (current.lastSignalAtMs !== null) {
+        this.logStuck('tick', '--', current, ltp, receivedAt, 'missing threshold/ltp');
+      }
       return { next: current };
     }
     if (current.state === 'BUYPOSITION') {
@@ -389,6 +462,7 @@ export class TickComponent {
     }
     if (current.state === 'NOPOSITION_SIGNAL') {
       if (current.lastCheckedAtMs !== null && current.lastCheckedAtMs >= current.lastSignalAtMs) {
+        this.logStuck('tick', '--', current, ltp, receivedAt, 'already checked');
         return { next: current };
       }
       const nextState = ltp > current.threshold ? 'BUYPOSITION' : 'NOPOSITION_BLOCKED';
@@ -567,7 +641,12 @@ export class TickComponent {
     return null;
   }
 
-  private toRow(tick: Tick, instrumentMap: Map<number, string>, fsm: InstrumentFsm | null): TickRow {
+  private toRow(
+    tick: Tick,
+    instrumentMap: Map<number, string>,
+    fsm: InstrumentFsm | null,
+    lotBySymbol: Map<string, number>
+  ): TickRow {
     if (typeof tick === 'object' && tick !== null) {
       const candidate = tick as {
         instrument_token?: unknown;
@@ -580,28 +659,40 @@ export class TickComponent {
       return this.toStateRow(
         instrumentToken === null ? null : instrumentMap.get(instrumentToken) ?? null,
         ltp,
-        fsm ?? this.defaultFsm()
+        fsm ?? this.defaultFsm(),
+        lotBySymbol
       );
     }
-    return this.toStateRow(null, null, fsm ?? this.defaultFsm());
+    return this.toStateRow(null, null, fsm ?? this.defaultFsm(), lotBySymbol);
   }
 
-  private toBinanceRow(payload: BinancePayload | null, fsm: InstrumentFsm): TickRow | null {
+  private toBinanceRow(
+    payload: BinancePayload | null,
+    fsm: InstrumentFsm,
+    lotBySymbol: Map<string, number>
+  ): TickRow | null {
     if (!payload) {
       return null;
     }
     return this.toStateRow(
       payload.symbol ?? null,
       typeof payload.price === 'number' ? payload.price : null,
-      fsm
+      fsm,
+      lotBySymbol
     );
   }
 
-  private toStateRow(symbol: string | null, ltp: number | null, fsm: InstrumentFsm): TickRow {
+  private toStateRow(
+    symbol: string | null,
+    ltp: number | null,
+    fsm: InstrumentFsm,
+    lotBySymbol: Map<string, number>
+  ): TickRow {
     return {
       symbol,
       ltp,
       threshold: fsm.threshold,
+      quantity: this.computeQuantity(symbol, ltp, lotBySymbol),
       noSignal: fsm.state === 'NOSIGNAL',
       noPositionSignal: fsm.state === 'NOPOSITION_SIGNAL',
       buyPosition: fsm.state === 'BUYPOSITION' || fsm.state === 'SELLPOSITION',
@@ -609,7 +700,11 @@ export class TickComponent {
     };
   }
 
-  private buildBinanceRows(state: TickState, snapshot: Map<string, FsmSymbolSnapshot>): TickRow[] {
+  private buildBinanceRows(
+    state: TickState,
+    snapshot: Map<string, FsmSymbolSnapshot>,
+    lotBySymbol: Map<string, number>
+  ): TickRow[] {
     const rows: TickRow[] = [];
     const persistedSnapshot = this.fsmStateService.getSnapshot();
     const priceBySymbol = new Map(state.latestBinanceBySymbol);
@@ -636,7 +731,7 @@ export class TickComponent {
           `[btc-row] symbol=${symbol} price=${price ?? '--'} threshold=${fsm.threshold ?? '--'} state=${fsm.state}`
         );
       }
-      rows.push(this.toStateRow(symbol, price, fsm));
+      rows.push(this.toStateRow(symbol, price, fsm, lotBySymbol));
     }
     return rows;
   }
@@ -695,6 +790,24 @@ export class TickComponent {
     console.log(message);
   }
 
+  private logStuck(
+    source: 'tick' | 'signal' | 'binance',
+    symbol: string,
+    current: InstrumentFsm,
+    ltp: number | null,
+    receivedAt: number,
+    reason: string
+  ): void {
+    const lastLogAt = this.lastStuckLogAtBySymbol.get(symbol) ?? 0;
+    if (receivedAt - lastLogAt < 10000) {
+      return;
+    }
+    this.lastStuckLogAtBySymbol.set(symbol, receivedAt);
+    this.log(
+      `[tick] stuck source=${source} symbol=${symbol} state=${current.state} ltp=${ltp ?? '--'} threshold=${current.threshold ?? '--'} reason=${reason}`
+    );
+  }
+
 
   private loadInstrumentMap() {
     return defer(() => from(this.fetchInstrumentMap())).pipe(
@@ -741,7 +854,8 @@ export class TickComponent {
           map: new Map<number, string>(),
           order: new Map<number, number>(),
           symbolLookup: new Map<string, number>(),
-          tokenSymbols: new Map<number, string[]>()
+          tokenSymbols: new Map<number, string[]>(),
+          lotBySymbol: new Map<string, number>()
         };
       }
       const parsed = await response.json();
@@ -752,7 +866,8 @@ export class TickComponent {
         map: new Map<number, string>(),
         order: new Map<number, number>(),
         symbolLookup: new Map<string, number>(),
-        tokenSymbols: new Map<number, string[]>()
+        tokenSymbols: new Map<number, string[]>(),
+        lotBySymbol: new Map<string, number>()
       };
     }
   }
@@ -762,6 +877,7 @@ export class TickComponent {
     const order = new Map<number, number>();
     const symbolLookup = new Map<string, number>();
     const tokenSymbols = new Map<number, string[]>();
+    const lotBySymbol = new Map<string, number>();
     meta.forEach((instrument, index) => {
       if (typeof instrument.token === 'number' && typeof instrument.zerodha === 'string') {
         map.set(instrument.token, instrument.zerodha);
@@ -770,14 +886,44 @@ export class TickComponent {
         const list = tokenSymbols.get(instrument.token) ?? [];
         list.push(instrument.zerodha);
         tokenSymbols.set(instrument.token, list);
+        if (typeof instrument.lot === 'number') {
+          lotBySymbol.set(instrument.zerodha, instrument.lot);
+        }
       }
       if (typeof instrument.token === 'number' && typeof instrument.tradingview === 'string') {
         symbolLookup.set(instrument.tradingview, instrument.token);
         const list = tokenSymbols.get(instrument.token) ?? [];
         list.push(instrument.tradingview);
         tokenSymbols.set(instrument.token, list);
+        if (typeof instrument.lot === 'number') {
+          lotBySymbol.set(instrument.tradingview, instrument.lot);
+        }
       }
     });
-    return { map, order, symbolLookup, tokenSymbols };
+    return { map, order, symbolLookup, tokenSymbols, lotBySymbol };
+  }
+
+  private computeQuantity(
+    symbol: string | null,
+    ltp: number | null,
+    lotBySymbol: Map<string, number>
+  ): number | null {
+    if (!symbol || ltp === null) {
+      return null;
+    }
+    const lot = this.getLotForSymbol(symbol, lotBySymbol);
+    if (lot === null || lot <= 0) {
+      return null;
+    }
+    const capital = this.relayService.getCapitalValue();
+    return Math.ceil(capital / (lot * ltp));
+  }
+
+  private getLotForSymbol(symbol: string, lotBySymbol: Map<string, number>): number | null {
+    if (lotBySymbol.has(symbol)) {
+      return lotBySymbol.get(symbol) ?? null;
+    }
+    const base = symbol.replace(/_(LONG|SHORT)$/, '');
+    return lotBySymbol.get(base) ?? null;
   }
 }

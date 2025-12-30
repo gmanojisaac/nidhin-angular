@@ -40,6 +40,9 @@ export class BtcShortComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     console.log('[btc-short] component init');
     console.log(`[btc-short] enter url=${this.router.url}`);
+    console.log(
+      `[btc-short] inputs showHeader=${this.showHeader} showBinanceCard=${this.showBinanceCard} showDeltaPanels=${this.showDeltaPanels}`
+    );
     this.navSub = this.router.events.pipe(
       filter((event) => event instanceof NavigationEnd)
     ).subscribe((event) => {

@@ -30,6 +30,14 @@ export class RelayComponent {
     this.relayService.port = value;
   }
 
+  get capital(): string {
+    return this.relayService.capital;
+  }
+
+  set capital(value: string) {
+    this.relayService.capital = value;
+  }
+
   get enabled(): boolean {
     return this.relayService.enabled;
   }

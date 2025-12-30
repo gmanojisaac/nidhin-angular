@@ -19,7 +19,7 @@ export class WebhookService implements OnDestroy {
   readonly webhook$: Observable<WebhookPayload>;
 
   constructor() {
-    this.socket = io('http://localhost:3001');
+    this.socket = io('http://localhost:3002');
 
     this.socket.on('connect', () => {
       console.log('[webhook] socket connected', this.socket.id);

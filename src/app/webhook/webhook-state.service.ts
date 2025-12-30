@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { BehaviorSubject, combineLatest, defer, from, map, shareReplay, withLatestFrom } from 'rxjs';
 import { FsmSymbolSnapshot, TickFsmStateService } from '../tick/tick-fsm-state.service';
 import { WebhookPayload, WebhookService } from './webhook.service';
+import { RelayService } from '../relay/relay.service';
 
 export type FilterMode = 'zerodha6' | 'btc' | 'btc-long' | 'btc-short' | 'none';
 
@@ -17,6 +18,7 @@ type SignalRow = {
 type InstrumentMeta = {
   tradingview?: string;
   zerodha?: string;
+  exchange?: string;
   lot?: number;
 };
 
@@ -50,6 +52,7 @@ type TradeRow = {
 type OpenTrade = {
   id: string;
   symbol: string;
+  side: 'BUY' | 'SELL';
   entryPrice: number;
   quantity: number;
   lot: number;
@@ -62,18 +65,45 @@ type TradeState = {
   tradesBySymbol: Map<string, TradeRow[]>;
   liveTradesBySymbol: Map<string, TradeRow[]>;
   cumulativeBySymbol: Map<string, number>;
+  liveCumulativeBySymbol: Map<string, number>;
   lastSnapshotBySymbol: Map<string, FsmSymbolSnapshot>;
+};
+
+type PersistedSignalState = {
+  bySymbol: [string, SignalRow[]][];
+  fsmBySymbol: [string, SignalTracking][];
+  paperTradesBySymbol: [string, TradeRow[]][];
+  symbols: string[];
+};
+
+type PersistedTradeState = {
+  openBySymbol: [string, OpenTrade][];
+  liveOpenBySymbol: [string, OpenTrade][];
+  tradesBySymbol: [string, TradeRow[]][];
+  liveTradesBySymbol: [string, TradeRow[]][];
+  cumulativeBySymbol: [string, number][];
+  liveCumulativeBySymbol: [string, number][];
+  lastSnapshotBySymbol: [string, FsmSymbolSnapshot][];
+};
+
+type PersistedSnapshot = {
+  signalStateByMode: Partial<Record<FilterMode, PersistedSignalState>>;
+  tradeState: PersistedTradeState;
 };
 
 @Injectable({ providedIn: 'root' })
 export class WebhookStateService {
   private readonly webhookService = inject(WebhookService);
   private readonly fsmStateService = inject(TickFsmStateService);
+  private readonly relayService = inject(RelayService);
   private readonly debugStateUpdates = true;
   private readonly instanceId = Math.random().toString(36).slice(2, 7);
   private readonly loggedModes = new Set<FilterMode>();
   private readonly signalStateByMode = new Map<FilterMode, BehaviorSubject<SignalState>>();
   private readonly tradeState$ = new BehaviorSubject<TradeState>(this.initialTradeState());
+  private readonly persistKey = 'webhook-state-snapshot-v1';
+  private persistTimeout: ReturnType<typeof setTimeout> | null = null;
+  private readonly unloadHandler = () => this.saveSnapshot();
   private readonly lastPnlLogMinuteBySymbol = new Map<string, number>();
   private readonly lastLiveTradeIdBySymbol = new Map<string, string>();
   private readonly liveTradeBlockedUntilBySymbol = new Map<string, number>();
@@ -89,12 +119,19 @@ export class WebhookStateService {
   private readonly lotLookup$ = defer(() => from(this.fetchLotLookup())).pipe(
     shareReplay({ bufferSize: 1, refCount: false })
   );
+  private readonly instrumentMetaBySymbol$ = defer(() => from(this.fetchInstrumentMetaBySymbol())).pipe(
+    shareReplay({ bufferSize: 1, refCount: false })
+  );
 
   constructor() {
     console.log(`[webhook-state] init instance=${this.instanceId}`);
     const modes: FilterMode[] = ['none', 'zerodha6', 'btc', 'btc-long', 'btc-short'];
     for (const mode of modes) {
       this.signalStateByMode.set(mode, new BehaviorSubject<SignalState>(this.initialSignalState()));
+    }
+    this.hydrateFromStorage(modes);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', this.unloadHandler);
     }
 
     this.webhookService.webhook$.pipe(
@@ -115,14 +152,21 @@ export class WebhookStateService {
             );
           }
           subject.next(next);
+          this.schedulePersist();
         }
       }
     });
 
-    combineLatest([this.fsmStateService.fsmBySymbol$, this.lotLookup$]).pipe(
-      map(([snapshot, lotLookup]) => this.reduceTradeState(this.tradeState$.value, snapshot, lotLookup))
+    combineLatest([this.fsmStateService.fsmBySymbol$, this.lotLookup$, this.instrumentMetaBySymbol$]).pipe(
+      map(([snapshot, lotLookup, instrumentMetaBySymbol]) => this.reduceTradeState(
+        this.tradeState$.value,
+        snapshot,
+        lotLookup,
+        instrumentMetaBySymbol
+      ))
     ).subscribe((next) => {
       this.tradeState$.next(next);
+      this.schedulePersist();
     });
   }
 
@@ -146,6 +190,15 @@ export class WebhookStateService {
     return this.tradeState$.asObservable();
   }
 
+  getSignalSnapshot(mode: FilterMode): SignalState {
+    const subject = this.signalStateByMode.get(mode);
+    return subject ? subject.value : this.initialSignalState();
+  }
+
+  getTradeSnapshot(): TradeState {
+    return this.tradeState$.value;
+  }
+
   getLiveTradeBlockedUntil(symbol: string): number | null {
     return this.liveTradeBlockedUntilBySymbol.get(symbol) ?? null;
   }
@@ -154,7 +207,21 @@ export class WebhookStateService {
     const subject = this.signalStateByMode.get(mode);
     if (subject) {
       subject.next(this.initialSignalState());
+      this.schedulePersist();
     }
+  }
+
+  resetBtcState(): void {
+    const btcModes: FilterMode[] = ['btc', 'btc-long', 'btc-short'];
+    for (const mode of btcModes) {
+      this.clearSignals(mode);
+    }
+    const nextTradeState = this.resetTradeStateForSymbols(
+      this.tradeState$.value,
+      (symbol) => this.isBtcSymbol(symbol)
+    );
+    this.tradeState$.next(nextTradeState);
+    this.schedulePersist();
   }
 
   private initialSignalState(): SignalState {
@@ -166,6 +233,108 @@ export class WebhookStateService {
     };
   }
 
+  private hydrateFromStorage(modes: FilterMode[]): void {
+    const snapshot = this.loadSnapshot();
+    if (!snapshot) {
+      return;
+    }
+    const signalStateByMode = snapshot.signalStateByMode ?? {};
+    for (const mode of modes) {
+      const subject = this.signalStateByMode.get(mode);
+      const persisted = signalStateByMode[mode];
+      if (subject && persisted) {
+        subject.next(this.fromPersistedSignalState(persisted));
+      }
+    }
+    if (snapshot.tradeState) {
+      this.tradeState$.next(this.fromPersistedTradeState(snapshot.tradeState));
+    }
+  }
+
+  private schedulePersist(): void {
+    if (this.persistTimeout !== null) {
+      return;
+    }
+    this.persistTimeout = setTimeout(() => {
+      this.persistTimeout = null;
+      this.saveSnapshot();
+    }, 1000);
+  }
+
+  private saveSnapshot(): void {
+    if (typeof localStorage === 'undefined') {
+      return;
+    }
+    const signalStateByMode: Partial<Record<FilterMode, PersistedSignalState>> = {};
+    for (const [mode, subject] of this.signalStateByMode.entries()) {
+      signalStateByMode[mode] = this.toPersistedSignalState(subject.value);
+    }
+    const tradeState = this.toPersistedTradeState(this.tradeState$.value);
+    const snapshot: PersistedSnapshot = { signalStateByMode, tradeState };
+    try {
+      localStorage.setItem(this.persistKey, JSON.stringify(snapshot));
+    } catch {
+      // ignore storage failures
+    }
+  }
+
+  private loadSnapshot(): PersistedSnapshot | null {
+    if (typeof localStorage === 'undefined') {
+      return null;
+    }
+    try {
+      const raw = localStorage.getItem(this.persistKey);
+      if (!raw) {
+        return null;
+      }
+      return JSON.parse(raw) as PersistedSnapshot;
+    } catch {
+      return null;
+    }
+  }
+
+  private toPersistedSignalState(state: SignalState): PersistedSignalState {
+    return {
+      bySymbol: Array.from(state.bySymbol.entries()),
+      fsmBySymbol: Array.from(state.fsmBySymbol.entries()),
+      paperTradesBySymbol: Array.from(state.paperTradesBySymbol.entries()),
+      symbols: [...state.symbols]
+    };
+  }
+
+  private fromPersistedSignalState(state: PersistedSignalState): SignalState {
+    return {
+      bySymbol: new Map(state.bySymbol ?? []),
+      fsmBySymbol: new Map(state.fsmBySymbol ?? []),
+      paperTradesBySymbol: new Map(state.paperTradesBySymbol ?? []),
+      symbols: Array.isArray(state.symbols) ? state.symbols : []
+    };
+  }
+
+  private toPersistedTradeState(state: TradeState): PersistedTradeState {
+    return {
+      openBySymbol: Array.from(state.openBySymbol.entries()),
+      liveOpenBySymbol: Array.from(state.liveOpenBySymbol.entries()),
+      tradesBySymbol: Array.from(state.tradesBySymbol.entries()),
+      liveTradesBySymbol: Array.from(state.liveTradesBySymbol.entries()),
+      cumulativeBySymbol: Array.from(state.cumulativeBySymbol.entries()),
+      liveCumulativeBySymbol: Array.from(state.liveCumulativeBySymbol.entries()),
+      lastSnapshotBySymbol: Array.from(state.lastSnapshotBySymbol.entries())
+    };
+  }
+
+  private fromPersistedTradeState(state: PersistedTradeState): TradeState {
+    return {
+      openBySymbol: new Map(state.openBySymbol ?? []),
+      liveOpenBySymbol: new Map(state.liveOpenBySymbol ?? []),
+      tradesBySymbol: new Map(state.tradesBySymbol ?? []),
+      liveTradesBySymbol: new Map(state.liveTradesBySymbol ?? []),
+      cumulativeBySymbol: new Map(state.cumulativeBySymbol ?? []),
+      liveCumulativeBySymbol: new Map(state.liveCumulativeBySymbol ?? []),
+      lastSnapshotBySymbol: new Map(state.lastSnapshotBySymbol ?? [])
+    };
+  }
+
   private initialTradeState(): TradeState {
     return {
       openBySymbol: new Map<string, OpenTrade>(),
@@ -173,20 +342,107 @@ export class WebhookStateService {
       tradesBySymbol: new Map<string, TradeRow[]>(),
       liveTradesBySymbol: new Map<string, TradeRow[]>(),
       cumulativeBySymbol: new Map<string, number>(),
+      liveCumulativeBySymbol: new Map<string, number>(),
       lastSnapshotBySymbol: new Map<string, FsmSymbolSnapshot>()
     };
   }
 
-  private reduceTradeState(
+  private resetTradeStateForSymbols(
     state: TradeState,
-    snapshot: Map<string, FsmSymbolSnapshot>,
-    lotLookup: Map<string, number>
+    shouldReset: (symbol: string) => boolean
   ): TradeState {
     const openBySymbol = new Map(state.openBySymbol);
     const liveOpenBySymbol = new Map(state.liveOpenBySymbol);
     const tradesBySymbol = new Map(state.tradesBySymbol);
     const liveTradesBySymbol = new Map(state.liveTradesBySymbol);
     const cumulativeBySymbol = new Map(state.cumulativeBySymbol);
+    const liveCumulativeBySymbol = new Map(state.liveCumulativeBySymbol);
+    const lastSnapshotBySymbol = new Map(state.lastSnapshotBySymbol);
+
+    for (const symbol of openBySymbol.keys()) {
+      if (shouldReset(symbol)) {
+        openBySymbol.delete(symbol);
+      }
+    }
+    for (const symbol of liveOpenBySymbol.keys()) {
+      if (shouldReset(symbol)) {
+        liveOpenBySymbol.delete(symbol);
+      }
+    }
+    for (const symbol of tradesBySymbol.keys()) {
+      if (shouldReset(symbol)) {
+        tradesBySymbol.delete(symbol);
+      }
+    }
+    for (const symbol of liveTradesBySymbol.keys()) {
+      if (shouldReset(symbol)) {
+        liveTradesBySymbol.delete(symbol);
+      }
+    }
+    for (const symbol of cumulativeBySymbol.keys()) {
+      if (shouldReset(symbol)) {
+        cumulativeBySymbol.delete(symbol);
+      }
+    }
+    for (const symbol of liveCumulativeBySymbol.keys()) {
+      if (shouldReset(symbol)) {
+        liveCumulativeBySymbol.delete(symbol);
+      }
+    }
+    for (const symbol of lastSnapshotBySymbol.keys()) {
+      if (shouldReset(symbol)) {
+        lastSnapshotBySymbol.delete(symbol);
+      }
+    }
+    for (const symbol of this.lastLiveTradeIdBySymbol.keys()) {
+      if (shouldReset(symbol)) {
+        this.lastLiveTradeIdBySymbol.delete(symbol);
+      }
+    }
+    for (const symbol of this.liveTradeBlockedUntilBySymbol.keys()) {
+      if (shouldReset(symbol)) {
+        this.liveTradeBlockedUntilBySymbol.delete(symbol);
+      }
+    }
+    for (const symbol of this.lastLiveEntryMinuteBySymbol.keys()) {
+      if (shouldReset(symbol)) {
+        this.lastLiveEntryMinuteBySymbol.delete(symbol);
+      }
+    }
+    for (const symbol of this.zerodhaSellCountAfterBuyBySymbol.keys()) {
+      if (shouldReset(symbol)) {
+        this.zerodhaSellCountAfterBuyBySymbol.delete(symbol);
+      }
+    }
+    for (const symbol of Array.from(this.zerodhaPendingBuySellSellBySymbol)) {
+      if (shouldReset(symbol)) {
+        this.zerodhaPendingBuySellSellBySymbol.delete(symbol);
+      }
+    }
+
+    return {
+      openBySymbol,
+      liveOpenBySymbol,
+      tradesBySymbol,
+      liveTradesBySymbol,
+      cumulativeBySymbol,
+      liveCumulativeBySymbol,
+      lastSnapshotBySymbol
+    };
+  }
+
+  private reduceTradeState(
+    state: TradeState,
+    snapshot: Map<string, FsmSymbolSnapshot>,
+    lotLookup: Map<string, number>,
+    instrumentMetaBySymbol: Map<string, InstrumentMeta>
+  ): TradeState {
+    const openBySymbol = new Map(state.openBySymbol);
+    const liveOpenBySymbol = new Map(state.liveOpenBySymbol);
+    const tradesBySymbol = new Map(state.tradesBySymbol);
+    const liveTradesBySymbol = new Map(state.liveTradesBySymbol);
+    const cumulativeBySymbol = new Map(state.cumulativeBySymbol);
+    const liveCumulativeBySymbol = new Map(state.liveCumulativeBySymbol);
     const lastSnapshotBySymbol = new Map(state.lastSnapshotBySymbol);
 
     for (const [symbol, current] of snapshot.entries()) {
@@ -222,10 +478,11 @@ export class WebhookStateService {
       if (isEntering && !openBySymbol.has(symbol)) {
         const entryPrice = ltp;
         const lot = lotLookup.get(symbol) ?? 1;
-        const quantity = Math.ceil(100000 / (lot * ltp));
+        const quantity = Math.ceil(this.relayService.getCapitalValue() / (lot * ltp));
         const timeIst = this.formatIstTime(new Date());
         const id = `${symbol}-${Date.now()}`;
-        const openTrade: OpenTrade = { id, symbol, entryPrice, quantity, lot, timeIst };
+        const side: 'BUY' | 'SELL' = current.state === 'SELLPOSITION' ? 'SELL' : 'BUY';
+        const openTrade: OpenTrade = { id, symbol, side, entryPrice, quantity, lot, timeIst };
         openBySymbol.set(symbol, openTrade);
         openedPaperThisPass = true;
         console.log(
@@ -264,9 +521,17 @@ export class WebhookStateService {
             liveOpenTrade.lot
           );
           if (paperUnrealized + cumulative < 0) {
-            this.closeLiveTradeOnly(symbol, liveOpenTrade, ltp, liveUnrealized, liveTradesBySymbol, cumulative);
+            this.closeLiveTradeOnly(
+              symbol,
+              liveOpenTrade,
+              ltp,
+              liveUnrealized,
+              liveTradesBySymbol,
+              liveCumulativeBySymbol
+            );
             liveOpenBySymbol.delete(symbol);
             this.blockLiveTrade(symbol);
+            this.sendLiveOrder(liveOpenTrade, 'CLOSE', instrumentMetaBySymbol);
           } else {
             this.updateTradeRow(liveTradesBySymbol, symbol, liveOpenTrade.id, {
               currentPrice: ltp,
@@ -279,7 +544,9 @@ export class WebhookStateService {
           if (shouldEnterNow && this.shouldEnterOncePerMinute(symbol, now)) {
             const liveTrade = this.createLiveOpenTrade(symbol, openTrade, ltp, now);
             liveOpenBySymbol.set(symbol, liveTrade);
-            this.appendLiveEntryRow(liveTradesBySymbol, liveTrade, ltp, cumulative, openedPaperThisPass);
+            const liveCumulative = liveCumulativeBySymbol.get(symbol) ?? 0;
+            this.appendLiveEntryRow(liveTradesBySymbol, liveTrade, ltp, liveCumulative, openedPaperThisPass);
+            this.sendLiveOrder(liveTrade, 'OPEN', instrumentMetaBySymbol);
           }
         } else {
           const now = new Date();
@@ -327,8 +594,16 @@ export class WebhookStateService {
             liveOpenTrade.quantity,
             liveOpenTrade.lot
           );
-          this.closeLiveTradeOnly(symbol, liveOpenTrade, ltp, liveUnrealized, liveTradesBySymbol, cumulative);
+          this.closeLiveTradeOnly(
+            symbol,
+            liveOpenTrade,
+            ltp,
+            liveUnrealized,
+            liveTradesBySymbol,
+            liveCumulativeBySymbol
+          );
           liveOpenBySymbol.delete(symbol);
+          this.sendLiveOrder(liveOpenTrade, 'CLOSE', instrumentMetaBySymbol);
         }
       }
     }
@@ -340,6 +615,7 @@ export class WebhookStateService {
       tradesBySymbol,
       liveTradesBySymbol,
       cumulativeBySymbol,
+      liveCumulativeBySymbol,
       lastSnapshotBySymbol
     };
   }
@@ -379,12 +655,14 @@ export class WebhookStateService {
     ltp: number,
     unrealized: number,
     liveTradesBySymbol: Map<string, TradeRow[]>,
-    cumulativePnl: number
+    liveCumulativeBySymbol: Map<string, number>
   ): void {
+    const nextCumulative = (liveCumulativeBySymbol.get(symbol) ?? 0) + unrealized - 50;
+    liveCumulativeBySymbol.set(symbol, nextCumulative);
     this.updateTradeRow(liveTradesBySymbol, symbol, openTrade.id, {
       currentPrice: ltp,
       unrealizedPnl: 0,
-      cumulativePnl
+      cumulativePnl: nextCumulative
     });
     const exitRow: TradeRow = {
       id: `${openTrade.id}-exit`,
@@ -393,7 +671,7 @@ export class WebhookStateService {
       entryPrice: openTrade.entryPrice,
       currentPrice: ltp,
       unrealizedPnl: unrealized,
-      cumulativePnl,
+      cumulativePnl: nextCumulative,
       quantity: openTrade.quantity
     };
     const existing = liveTradesBySymbol.get(symbol) ?? [];
@@ -413,6 +691,7 @@ export class WebhookStateService {
     return {
       id: `live-${symbol}-${now.getTime()}`,
       symbol,
+      side: paperTrade.side,
       entryPrice: ltp,
       quantity: paperTrade.quantity,
       lot: paperTrade.lot,
@@ -484,6 +763,71 @@ export class WebhookStateService {
     }
   }
 
+  private async fetchInstrumentMetaBySymbol(): Promise<Map<string, InstrumentMeta>> {
+    try {
+      const response = await fetch('/instruments.json', { cache: 'no-store' });
+      if (!response.ok) {
+        return new Map<string, InstrumentMeta>();
+      }
+      const parsed = await response.json();
+      const meta = Array.isArray(parsed) ? (parsed as InstrumentMeta[]) : [];
+      const map = new Map<string, InstrumentMeta>();
+      for (const instrument of meta) {
+        if (typeof instrument.zerodha === 'string') {
+          map.set(instrument.zerodha, instrument);
+        }
+        if (typeof instrument.tradingview === 'string') {
+          map.set(instrument.tradingview, instrument);
+        }
+      }
+      return map;
+    } catch {
+      return new Map<string, InstrumentMeta>();
+    }
+  }
+
+  private sendLiveOrder(
+    trade: OpenTrade,
+    action: 'OPEN' | 'CLOSE',
+    instrumentMetaBySymbol: Map<string, InstrumentMeta>
+  ): void {
+    const meta = instrumentMetaBySymbol.get(trade.symbol);
+    if (!meta || typeof meta.exchange !== 'string') {
+      return;
+    }
+    if (meta.exchange === 'CRYPTO') {
+      return;
+    }
+    const side = action === 'OPEN'
+      ? trade.side
+      : (trade.side === 'BUY' ? 'SELL' : 'BUY');
+    const payload = {
+      symbol: meta.zerodha ?? trade.symbol,
+      exchange: meta.exchange,
+      transactionType: side,
+      quantity: trade.quantity,
+      product: 'MIS',
+      validity: 'DAY',
+      orderType: 'LIMIT',
+      sideOffset: 0.5,
+      dryRun: false
+    };
+    void fetch('/api/zerodha/order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then((response) => {
+      if (!response.ok) {
+        console.log(`[zerodha-order] ${action} failed symbol=${payload.symbol} status=${response.status}`);
+        return;
+      }
+      console.log(`[zerodha-order] ${action} sent symbol=${payload.symbol} side=${side} qty=${payload.quantity}`);
+    }).catch((error) => {
+      const message = error instanceof Error ? error.message : 'network error';
+      console.log(`[zerodha-order] ${action} failed symbol=${payload.symbol} error=${message}`);
+    });
+  }
+
   private async fetchSymbolMap(): Promise<Map<string, string>> {
     try {
       const response = await fetch('/instruments.json', { cache: 'no-store' });
@@ -520,8 +864,19 @@ export class WebhookStateService {
     if (!symbol) {
       return state;
     }
-    if (allowedSymbols && !allowedSymbols.has(symbol)) {
-      return state;
+    if (this.debugStateUpdates && rawSymbol && symbol !== rawSymbol) {
+      console.log(`[webhook-state] map mode=${mode} raw=${rawSymbol} mapped=${symbol}`);
+    }
+    if (allowedSymbols) {
+      const allowedKey = this.isZerodhaMode(mode) ? symbol : rawSymbol;
+      if (!allowedSymbols.has(allowedKey)) {
+        if (this.debugStateUpdates) {
+          console.log(
+            `[webhook-state] drop mode=${mode} raw=${rawSymbol} mapped=${symbol} allowKey=${allowedKey}`
+          );
+        }
+        return state;
+      }
     }
     const intent = this.normalizeString(payload.intent);
     const signal = this.getSignalType(intent, this.normalizeString(payload.side));
@@ -618,6 +973,10 @@ export class WebhookStateService {
 
   private isZerodhaMode(mode: FilterMode): boolean {
     return mode === 'zerodha6';
+  }
+
+  private isBtcSymbol(symbol: string): boolean {
+    return symbol.toUpperCase().startsWith('BTC');
   }
 
   private nextZerodhaTracking(
