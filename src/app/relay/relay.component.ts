@@ -46,6 +46,22 @@ export class RelayComponent {
     this.relayService.enabled = value;
   }
 
+  get dryRun(): boolean {
+    return this.relayService.dryRun;
+  }
+
+  set dryRun(value: boolean) {
+    this.relayService.dryRun = value;
+  }
+
+  get orderHost(): string {
+    return this.relayService.orderHost;
+  }
+
+  set orderHost(value: string) {
+    this.relayService.orderHost = value;
+  }
+
   get attempts(): RelayAttempt[] {
     return this.relayService.attempts;
   }
@@ -60,5 +76,9 @@ export class RelayComponent {
 
   currentUrl(): string {
     return this.relayService.currentUrl();
+  }
+
+  currentOrderUrl(): string {
+    return this.relayService.currentOrderUrl();
   }
 }

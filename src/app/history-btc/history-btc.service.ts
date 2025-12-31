@@ -203,7 +203,8 @@ export class HistoryBtcService {
       return null;
     }
     const capital = this.relayService.getCapitalValue();
-    return Math.ceil(capital / (lot * ltp));
+    const lots = Math.ceil(capital / (lot * ltp));
+    return Math.max(1, lots) * lot;
   }
 
   private getLotForSymbol(symbol: string, lotBySymbol: Map<string, number>): number | null {

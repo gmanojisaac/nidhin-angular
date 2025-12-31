@@ -168,7 +168,24 @@ export class WebhookComponent {
 
   clearSignals(): void {
     this.selectedSymbol = '';
-    this.webhookStateService.clearSignals(this.currentMode);
+    this.webhookStateService.clearModeState(this.currentMode);
+  }
+
+  async copyTradesToClipboard(): Promise<void> {
+    const state = this.webhookStateService.getTradeSnapshot();
+    const symbol = this.selectedSymbol;
+    const payload = {
+      symbol,
+      paperTrades: symbol ? state.tradesBySymbol.get(symbol) ?? [] : [],
+      liveTrades: symbol ? state.liveTradesBySymbol.get(symbol) ?? [] : []
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      console.log(`[webhook] copied trades symbol=${symbol || '--'}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'clipboard error';
+      console.warn(`[webhook] copy failed symbol=${symbol || '--'} error=${message}`);
+    }
   }
 
   formatStopPx(value: number | null): string {
@@ -190,7 +207,7 @@ export class WebhookComponent {
     if (base === null || Number.isNaN(base)) {
       return '--';
     }
-    const adjusted = this.isOpenTrade(row) ? base - 50 : base;
+    const adjusted = this.isOpenTrade(row) ? base - this.getBrokerage(row) : base;
     return adjusted.toFixed(2);
   }
 
@@ -203,6 +220,11 @@ export class WebhookComponent {
       return !row.id.endsWith('-exit');
     }
     return true;
+  }
+
+  private getBrokerage(row: TradeRow | BtcLiveRow): number {
+    const symbol = row.symbol ?? '';
+    return symbol.toUpperCase().startsWith('BTC') ? 50 : 250;
   }
 
   isBtcMode(): boolean {

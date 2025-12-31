@@ -25,13 +25,14 @@ export class MainPageComponent {
         localStorage.removeItem('webhook-state-snapshot-v1');
         localStorage.removeItem('history-btc-latest');
         localStorage.removeItem('history-btc-last-reset');
+        localStorage.removeItem('tick-fsm-snapshot-v1');
       } catch {
         // ignore storage failures
       }
     }
     this.tickService.clearCache();
     this.webhookStateService.resetBtcState();
-    this.tickFsmStateService.clearSymbols(['BTCUSDT', 'BTCUSDT_LONG', 'BTCUSDT_SHORT', 'BTCUSD']);
+    this.tickFsmStateService.clearAll();
     void this.historyBtcService;
   }
 }

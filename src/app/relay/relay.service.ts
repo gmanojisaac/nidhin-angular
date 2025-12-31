@@ -17,6 +17,8 @@ export class RelayService implements OnDestroy {
   ipAddress = this.loadSetting('relay.ip');
   port = this.loadSetting('relay.port', '3002');
   capital = this.loadSetting('relay.capital', '100000');
+  dryRun = this.loadSetting('relay.dryRun', 'true') === 'true';
+  orderHost = this.loadSetting('relay.orderHost');
   enabled = this.loadSetting('relay.enabled') === 'true';
   attempts: RelayAttempt[] = [];
 
@@ -44,6 +46,8 @@ export class RelayService implements OnDestroy {
     this.persistSetting('relay.ip', this.ipAddress);
     this.persistSetting('relay.port', this.port);
     this.persistSetting('relay.capital', this.capital);
+    this.persistSetting('relay.dryRun', String(this.dryRun));
+    this.persistSetting('relay.orderHost', this.orderHost);
     this.persistSetting('relay.enabled', String(this.enabled));
   }
 
@@ -68,6 +72,10 @@ export class RelayService implements OnDestroy {
     return this.buildRelayUrl() ?? '--';
   }
 
+  currentOrderUrl(): string {
+    return this.buildOrderUrl() ?? '--';
+  }
+
   private buildRelayUrl(): string | null {
     const ip = this.ipAddress.trim();
     if (!ip) {
@@ -78,6 +86,17 @@ export class RelayService implements OnDestroy {
       return `${ip.replace(/\/+$/, '')}/webhook`;
     }
     return `http://${ip}:${port}/webhook`;
+  }
+
+  buildOrderUrl(): string | null {
+    const host = this.orderHost.trim();
+    if (!host) {
+      return null;
+    }
+    if (host.startsWith('http://') || host.startsWith('https://')) {
+      return `${host.replace(/\/+$/, '')}/api/zerodha/order`;
+    }
+    return `http://${host}/api/zerodha/order`;
   }
 
   private async relayPayload(url: string, payload: WebhookPayload): Promise<void> {

@@ -211,6 +211,17 @@ export class WebhookStateService {
     }
   }
 
+  clearModeState(mode: FilterMode): void {
+    this.clearSignals(mode);
+    const shouldReset = this.getModeResetFilter(mode);
+    const nextTradeState = this.resetTradeStateForSymbols(
+      this.tradeState$.value,
+      shouldReset
+    );
+    this.tradeState$.next(nextTradeState);
+    this.schedulePersist();
+  }
+
   resetBtcState(): void {
     const btcModes: FilterMode[] = ['btc', 'btc-long', 'btc-short'];
     for (const mode of btcModes) {
@@ -431,6 +442,19 @@ export class WebhookStateService {
     };
   }
 
+  private getModeResetFilter(mode: FilterMode): (symbol: string) => boolean {
+    if (mode === 'none') {
+      return () => true;
+    }
+    if (mode === 'btc' || mode === 'btc-long' || mode === 'btc-short') {
+      return (symbol) => this.isBtcSymbol(symbol);
+    }
+    if (mode === 'zerodha6') {
+      return (symbol) => !this.isBtcSymbol(symbol);
+    }
+    return () => false;
+  }
+
   private reduceTradeState(
     state: TradeState,
     snapshot: Map<string, FsmSymbolSnapshot>,
@@ -478,7 +502,8 @@ export class WebhookStateService {
       if (isEntering && !openBySymbol.has(symbol)) {
         const entryPrice = ltp;
         const lot = lotLookup.get(symbol) ?? 1;
-        const quantity = Math.ceil(this.relayService.getCapitalValue() / (lot * ltp));
+        const lots = Math.ceil(this.relayService.getCapitalValue() / (lot * ltp));
+        const quantity = Math.max(1, lots) * lot;
         const timeIst = this.formatIstTime(new Date());
         const id = `${symbol}-${Date.now()}`;
         const side: 'BUY' | 'SELL' = current.state === 'SELLPOSITION' ? 'SELL' : 'BUY';
@@ -657,7 +682,7 @@ export class WebhookStateService {
     liveTradesBySymbol: Map<string, TradeRow[]>,
     liveCumulativeBySymbol: Map<string, number>
   ): void {
-    const nextCumulative = (liveCumulativeBySymbol.get(symbol) ?? 0) + unrealized - 50;
+    const nextCumulative = (liveCumulativeBySymbol.get(symbol) ?? 0) + unrealized - this.getBrokerage(symbol);
     liveCumulativeBySymbol.set(symbol, nextCumulative);
     this.updateTradeRow(liveTradesBySymbol, symbol, openTrade.id, {
       currentPrice: ltp,
@@ -810,9 +835,10 @@ export class WebhookStateService {
       validity: 'DAY',
       orderType: 'LIMIT',
       sideOffset: 0.5,
-      dryRun: false
+      dryRun: this.relayService.dryRun
     };
-    void fetch('/api/zerodha/order', {
+    const orderUrl = this.relayService.buildOrderUrl() ?? '/api/zerodha/order';
+    void fetch(orderUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -1228,6 +1254,10 @@ export class WebhookStateService {
   ): number {
     const isShort = symbol === 'BTCUSDT_SHORT';
     const delta = isShort ? entryPrice - ltp : ltp - entryPrice;
-    return delta * quantity * lot;
+    return delta * quantity;
+  }
+
+  private getBrokerage(symbol: string): number {
+    return symbol.toUpperCase().startsWith('BTC') ? 50 : 250;
   }
 }
